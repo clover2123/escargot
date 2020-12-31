@@ -138,6 +138,8 @@ jobs:
       run: |
         cp ../../../tools/test/wasm-js/imports_patch .
         patch -p0 < imports_patch
+    - name: Copy Additional TC
+      run: cp tools/test/wasm-js/grow-part.any.js test/vendortest/wasm-js/tests/memory/.
     - name: Build x86
       env:
         BUILD_OPTIONS: -DESCARGOT_HOST=linux -DESCARGOT_ARCH=x86 -DESCARGOT_MODE=debug -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_WASM=ON -DESCARGOT_OUTPUT=shell_test -GNinja
