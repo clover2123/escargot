@@ -1079,3 +1079,68 @@ TEST(EnumerateObjectOwnProperties, Basic1)
         return ValueRef::createUndefined();
     });
 }
+
+TEST(ValueVector, Basic1)
+{
+    ValueRef* minusInt = ValueRef::create(-1);
+    ValueRef* doubleValue = ValueRef::create(2.7);
+    ValueRef* intMax = ValueRef::create(std::numeric_limits<int32_t>::max());
+    ValueRef* intMin = ValueRef::create(std::numeric_limits<int32_t>::min());
+    ValueRef* uintMax = ValueRef::create(std::numeric_limits<uint32_t>::max());
+    ValueRef* uint64Max = ValueRef::create(std::numeric_limits<uint64_t>::max());
+
+    EXPECT_TRUE(minusInt->isInt32());
+    EXPECT_TRUE(!doubleValue->isInt32() && doubleValue->isNumber());
+    EXPECT_TRUE(intMax->isInt32());
+    EXPECT_TRUE(intMin->isInt32());
+    EXPECT_TRUE(!uintMax->isInt32() && uintMax->isNumber());
+    EXPECT_TRUE(!uint64Max->isInt32() && uint64Max->isNumber());
+
+    ValueVectorRef* numVector = ValueVectorRef::create(5);
+    numVector->set(0, minusInt);
+    numVector->set(1, doubleValue);
+    numVector->set(2, intMax);
+    numVector->set(3, intMin);
+    numVector->set(4, uintMax);
+    numVector->pushBack(uint64Max);
+
+    EXPECT_TRUE(numVector->at(0)->isInt32() && numVector->at(0) == minusInt);
+    EXPECT_TRUE(!numVector->at(1)->isInt32() && numVector->at(1)->isNumber() && numVector->at(1)->asNumber() == 2.7);
+    EXPECT_TRUE(numVector->at(2)->isInt32() && numVector->at(2) == intMax);
+    EXPECT_TRUE(numVector->at(3)->isInt32() && numVector->at(3) == intMin);
+    EXPECT_TRUE(!numVector->at(4)->isInt32() && numVector->at(4)->isNumber() && numVector->at(4)->asNumber() == std::numeric_limits<uint32_t>::max());
+    EXPECT_TRUE(!numVector->at(5)->isInt32() && numVector->at(5)->isNumber() && numVector->at(5)->asNumber() == std::numeric_limits<uint64_t>::max());
+
+    numVector->set(1, ValueRef::create(5.5));
+    EXPECT_TRUE(!numVector->at(1)->isInt32() && numVector->at(1)->isNumber() && numVector->at(1)->asNumber() == 5.5);
+
+    ValueRef* obj2 = reinterpret_cast<ValueRef*>((size_t)0xfffffff0);
+}
+
+TEST(ValueVector, Basic2)
+{
+    Evaluator::execute(g_context.get(), [](ExecutionStateRef* state) -> ValueRef* {
+        ValueRef* minusInt = ValueRef::create(-1);
+        ValueRef* doubleValue = ValueRef::create(2.7);
+        ValueRef* obj1 = ObjectRef::create(state);
+        ValueRef* obj2 = reinterpret_cast<ValueRef*>(0xfffffff0);
+
+        ValueVectorRef* valueVec = ValueVectorRef::create(3);
+        valueVec->set(0, obj1);
+        valueVec->set(1, obj2);
+        valueVec->set(2, minusInt);
+
+        EXPECT_TRUE(valueVec->at(0)->isObject() && valueVec->at(0)->asObject() == obj1);
+        EXPECT_TRUE(valueVec->at(1) == obj2);
+        EXPECT_TRUE(valueVec->at(2)->isNumber() && valueVec->at(2)->asNumber() == -1);
+
+        valueVec->erase(1);
+        valueVec->pushBack(doubleValue);
+        EXPECT_TRUE(valueVec->size() == 3);
+        EXPECT_TRUE(valueVec->at(0)->isObject() && valueVec->at(0)->asObject() == obj1);
+        EXPECT_TRUE(valueVec->at(1)->isNumber() && valueVec->at(1)->asNumber() == -1);
+        EXPECT_TRUE(!valueVec->at(2)->isInt32() && valueVec->at(2)->isNumber() && valueVec->at(2)->asNumber() == 2.7);
+
+        return ValueRef::createUndefined();
+    });
+}
