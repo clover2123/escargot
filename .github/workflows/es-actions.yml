@@ -45,18 +45,23 @@ jobs:
       run: |
         wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_66.1-2ubuntu2_i386.deb
         dpkg -X libicu-dev_66.1-2ubuntu2_i386.deb $GITHUB_WORKSPACE/icu32
+    - name: Set up env 
+      run: |
+        echo "-I$GITHUB_WORKSPACE/icu32/usr/include=CXXFLAGS" >> $GITHUB_ENV
+        echo "-L$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu=LDFLAGS" >> $GITHUB_ENV
+        echo "$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu/pkgconfig=PKG_CONFIG_PATH" >> $GITHUB_ENV
+        echo "||||||||||||||||||||||||||||"
     - name: Build x86
       env:
-        CXXFLAGS: -I$GITHUB_WORKSPACE/icu32/usr/include
-        LDFLAGS: -L$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu
         BUILD_OPTIONS: -DESCARGOT_HOST=linux -DESCARGOT_ARCH=x86 -DESCARGOT_MODE=release -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_OUTPUT=shell_test -GNinja
       run: |
+        echo $CXXFLAGS
+        echo $LDFLAGS
+        echo $PKG_CONFIG_PATH
+        echo $GITHUB_WORKSPACE
+        echo "||||||||||||||||||||||||||||"
         cmake -H. -Bout/release/x86 $BUILD_OPTIONS
         ninja -Cout/release/x86
-    - name: Run release-x86 test
-      env:
-        GC_FREE_SPACE_DIVISOR: 1
-      run: $RUNNER --arch=x86 --engine="$GITHUB_WORKSPACE/out/release/x86/escargot" ${{ matrix.tc }}
 
   release_x64_test:
     runs-on: ubuntu-latest
