@@ -38,6 +38,48 @@ namespace Escargot {
 
 class ASTAllocator;
 
+class GCEventListenerList {
+public:
+    typedef void (*OnEventListener)(void* data);
+    typedef std::vector<std::pair<OnEventListener, void*>> EventListenerVector;
+
+    GCEventListenerList() {}
+    ~GCEventListenerList()
+    {
+        reset();
+    }
+
+    EventListenerVector* ensureMarkStartListeners();
+    EventListenerVector* ensureMarkEndListeners();
+    EventListenerVector* ensureReclaimStartListeners();
+    EventListenerVector* ensureReclaimEndListeners();
+
+    Optional<EventListenerVector*> markStartListeners() const
+    {
+        return m_markStartListeners;
+    }
+    Optional<EventListenerVector*> markEndListeners() const
+    {
+        return m_markEndListeners;
+    }
+    Optional<EventListenerVector*> reclaimStartListeners() const
+    {
+        return m_reclaimStartListeners;
+    }
+    Optional<EventListenerVector*> reclaimEndListeners() const
+    {
+        return m_reclaimEndListeners;
+    }
+
+    void reset();
+
+private:
+    Optional<EventListenerVector*> m_markStartListeners;
+    Optional<EventListenerVector*> m_markEndListeners;
+    Optional<EventListenerVector*> m_reclaimStartListeners;
+    Optional<EventListenerVector*> m_reclaimEndListeners;
+};
+
 // ThreadLocal has thread-local values
 // ThreadLocal should be created for each thread
 // ThreadLocal is a non-GC global object which means that users who want to customize it should manage memory by themselves
@@ -50,6 +92,7 @@ class ThreadLocal {
 #if defined(ENABLE_WASM)
     static MAY_THREAD_LOCAL WASMContext g_wasmContext;
 #endif
+    static MAY_THREAD_LOCAL GCEventListenerList* g_gcEventListenerList;
     static MAY_THREAD_LOCAL ASTAllocator* g_astAllocator;
     static MAY_THREAD_LOCAL WTF::BumpPointerAllocator* g_bumpPointerAllocator;
     // custom data allocated by user through Platform::allocateThreadLocalCustomData
@@ -87,6 +130,12 @@ public:
         return g_wasmContext.lastGCCheckTime;
     }
 #endif
+
+    static GCEventListenerList& gcEventListenerList()
+    {
+        ASSERT(inited && !!g_gcEventListenerList);
+        return *g_gcEventListenerList;
+    }
 
     static ASTAllocator* astAllocator()
     {
