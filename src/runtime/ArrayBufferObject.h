@@ -45,6 +45,15 @@ public:
         return true;
     }
 
+    virtual void fillData(const uint8_t* newData, size_t length) override
+    {
+        ASSERT(!isDetachedBuffer());
+        memcpy(data(), newData, length);
+    }
+
+    virtual Value getValueFromBuffer(ExecutionState& state, size_t byteindex, TypedArrayType type, bool isLittleEndian = true) override;
+    virtual void setValueInBuffer(ExecutionState& state, size_t byteindex, TypedArrayType type, const Value& val, bool isLittleEndian = true) override;
+
     void* operator new(size_t size);
     void* operator new[](size_t size) = delete;
 };
