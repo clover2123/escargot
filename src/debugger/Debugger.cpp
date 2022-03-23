@@ -35,7 +35,6 @@ void Debugger::enableDebugger(Context* context)
 {
     ASSERT(m_context == nullptr);
     m_context = context;
-    m_parsingEnabled = true;
     m_context->enableDebugger(this);
 }
 

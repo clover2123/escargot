@@ -140,14 +140,12 @@ void Context::enableDebugger(Debugger* debugger)
 {
     ASSERT(m_debugger == nullptr);
     m_debugger = debugger;
-    m_instance->m_debuggerEnabled = true;
 }
 
 void Context::disableDebugger()
 {
     ASSERT(m_debugger != nullptr);
     m_debugger = nullptr;
-    m_instance->m_debuggerEnabled = false;
 }
 
 void Context::printDebugger(StringView* output)

@@ -418,7 +418,7 @@ ScriptParser::InitializeScriptResult ScriptParser::initializeScript(String* sour
 {
     ASSERT(m_context->astAllocator().isInitialized());
 #ifdef ESCARGOT_DEBUGGER
-    if (LIKELY(needByteCodeGeneration) && m_context->debugger() != nullptr) {
+    if (LIKELY(needByteCodeGeneration) && m_context->debugger() != nullptr && !srcName->contains("internal")) {
         return initializeScriptWithDebugger(source, srcName, parentCodeBlock, isModule, isEvalMode, isEvalCodeInFunction, inWithOperation, strictFromOutside, allowSuperCall, allowSuperProperty, allowNewTarget);
     }
 #endif /* ESCARGOT_DEBUGGER */
