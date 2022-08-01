@@ -480,6 +480,7 @@ def run_new_es(engine, arch):
 
         if not proc.returncode:
             print('%sOK: %s%s' % (COLOR_GREEN, file, COLOR_RESET))
+            print(out)
         else:
             print('%sFAIL(%d): %s%s' % (COLOR_RED, proc.returncode, file, COLOR_RESET))
             print(out)
