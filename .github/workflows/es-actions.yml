@@ -11,7 +11,8 @@ env:
 
 jobs:
   check_tidy:
-    runs-on: ubuntu-latest
+    # setup-python does not support ubuntu-latest(ubuntu-22.04)
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v3
       with:
@@ -214,7 +215,8 @@ jobs:
         $RUNNER --arch=x86_64 --engine="$GITHUB_WORKSPACE/out/debugger/escargot" debugger-client-source
 
   api_test:
-    runs-on: ubuntu-latest
+    # googletest build fails in ubuntu-latest(ubuntu-22.04)
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v3
       with:
