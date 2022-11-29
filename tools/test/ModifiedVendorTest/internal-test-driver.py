@@ -12,11 +12,11 @@ def CaseRunner(Case):
 
   Out = ""
   for line in iter(Process.stdout.readline,''):
-    Out = Out + line
+    Out = Out + str(line)
 
   Err = ""
   for line in iter(Process.stderr.readline,''):
-    Err = Err + line
+    Err = Err + str(line)
 
 
   if ResultCode == 0:
