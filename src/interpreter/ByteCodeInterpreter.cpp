@@ -51,6 +51,7 @@
 #include "CheckedArithmetic.h"
 
 extern char FillOpcodeTableAsmLbl[];
+const void* FillOpcodeTableAddress[] = { &FillOpcodeTableAsmLbl[0] };
 
 namespace Escargot {
 
@@ -86,7 +87,7 @@ OpcodeTable::OpcodeTable()
 #if defined(COMPILER_GCC) || defined(COMPILER_CLANG)
     // Dummy bytecode execution to initialize the OpcodeTable.
     ExecutionState state(nullptr);
-    size_t dummyCode = reinterpret_cast<size_t>(FillOpcodeTableAsmLbl);
+    size_t dummyCode = reinterpret_cast<size_t>(FillOpcodeTableAddress[0]);
     ByteCodeInterpreter::interpret(&state, nullptr, reinterpret_cast<size_t>(&dummyCode), nullptr);
 #endif
 }
