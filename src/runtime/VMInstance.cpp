@@ -368,7 +368,7 @@ VMInstance::VMInstance(const char* locale, const char* timezone, const char* bas
 
 #if defined(OS_WINDOWS)
     m_stackStartAddress = getTIB()->StackBase;
-#elif defined(TARGET_OS_MAC)
+#elif defined(OS_DARWIN)
     m_stackStartAddress = pthread_get_stackaddr_np(pthread_self());
 #else
     pthread_attr_t attr;

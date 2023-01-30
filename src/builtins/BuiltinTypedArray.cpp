@@ -587,7 +587,7 @@ static Value builtinTypedArrayLastIndexOf(ExecutionState& state, Value thisValue
     if (doubleK < 0) {
         return Value(-1);
     }
-    int64_t k = (int64_t)doubleK;
+    uint64_t k = (int64_t)doubleK;
 
     // Repeat, while k≥ 0
     while (k >= 0) {
@@ -604,7 +604,7 @@ static Value builtinTypedArrayLastIndexOf(ExecutionState& state, Value thisValue
                 return Value(k);
             }
         } else {
-            int64_t result;
+            uint64_t result;
             Object::nextIndexBackward(state, O, k, -1, result);
             k = result;
             continue;
@@ -837,7 +837,7 @@ static Value builtinTypedArraySort(ExecutionState& state, Value thisValue, size_
     ArrayBuffer* buffer = TypedArrayObject::validateTypedArray(state, O);
 
     // Let len be the value of O’s [[ArrayLength]] internal slot.
-    int64_t len = O->asTypedArrayObject()->arrayLength();
+    uint64_t len = O->asTypedArrayObject()->arrayLength();
 
     Value cmpfn = argv[0];
     if (!cmpfn.isUndefined() && !cmpfn.isCallable()) {
@@ -1155,7 +1155,7 @@ static Value builtinTypedArrayFindLast(ExecutionState& state, Value thisValue, s
     TypedArrayObject::validateTypedArray(state, O);
 
     // Let len be O.[[ArrayLength]].
-    int64_t len = static_cast<int64_t>(O->asTypedArrayObject()->arrayLength());
+    uint64_t len = static_cast<int64_t>(O->asTypedArrayObject()->arrayLength());
 
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
@@ -1163,7 +1163,7 @@ static Value builtinTypedArrayFindLast(ExecutionState& state, Value thisValue, s
     }
 
     // Let k be len - 1.
-    int64_t k = len - 1;
+    uint64_t k = len - 1;
     Value kValue;
     // Repeat, while k >= 0
     while (k >= 0) {
@@ -1193,7 +1193,7 @@ static Value builtinTypedArrayFindLastIndex(ExecutionState& state, Value thisVal
     TypedArrayObject::validateTypedArray(state, O);
 
     // Let len be O.[[ArrayLength]].
-    int64_t len = static_cast<int64_t>(O->asTypedArrayObject()->arrayLength());
+    uint64_t len = static_cast<int64_t>(O->asTypedArrayObject()->arrayLength());
 
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
@@ -1201,7 +1201,7 @@ static Value builtinTypedArrayFindLastIndex(ExecutionState& state, Value thisVal
     }
 
     // Let k be len - 1.
-    int64_t k = len - 1;
+    uint64_t k = len - 1;
     Value kValue;
     // Repeat, while k >= 0
     while (k >= 0) {
@@ -1416,7 +1416,7 @@ static Value builtinTypedArrayReduceRight(ExecutionState& state, Value thisValue
     }
 
     // Let k be len-1.
-    int64_t k = len - 1;
+    uint64_t k = len - 1;
 
     Value accumulator;
     // If initialValue is present, then

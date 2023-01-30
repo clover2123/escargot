@@ -2832,7 +2832,7 @@ Value TemporalPlainYearMonthObject::addDurationToOrSubtractDurationFromPlainYear
 
     for (auto& entry : entries) {
         auto entryArray = entry.asObject()->asArrayObject();
-        optionsCopy->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, entryArray->getOwnProperty(state, ObjectPropertyName(state, (int64_t)0)).value(state, entryArray)), ObjectPropertyDescriptor(entryArray->getOwnProperty(state, ObjectPropertyName(state, (int64_t)1)).value(state, entryArray)));
+        optionsCopy->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, entryArray->getOwnProperty(state, ObjectPropertyName(state, (uint64_t)0)).value(state, entryArray)), ObjectPropertyDescriptor(entryArray->getOwnProperty(state, ObjectPropertyName(state, (uint64_t)1)).value(state, entryArray)));
     }
 
     Value addedDate = TemporalCalendarObject::calendarDateAdd(state, yearMonth->getCalendar(), date, durationToAdd, options);

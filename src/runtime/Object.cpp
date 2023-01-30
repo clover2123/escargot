@@ -1653,14 +1653,14 @@ bool Object::isArray(ExecutionState& state)
     return false;
 }
 
-void Object::nextIndexForward(ExecutionState& state, Object* obj, const int64_t cur, const int64_t end, int64_t& nextIndex)
+void Object::nextIndexForward(ExecutionState& state, Object* obj, const uint64_t cur, const uint64_t end, uint64_t& nextIndex)
 {
     Value ptr = obj;
-    int64_t ret = end;
+    uint64_t ret = end;
     struct Data {
         bool* exists;
-        const int64_t* cur;
-        int64_t* ret;
+        const uint64_t* cur;
+        uint64_t* ret;
     } data;
     data.cur = &cur;
     data.ret = &ret;
@@ -1673,9 +1673,9 @@ void Object::nextIndexForward(ExecutionState& state, Object* obj, const int64_t 
 
         ptr.asObject()->enumeration(
             state, [](ExecutionState& state, Object* self, const ObjectPropertyName& name, const ObjectStructurePropertyDescriptor& desc, void* data) {
-                int64_t index;
+                uint64_t index;
                 Data* e = (Data*)data;
-                int64_t* ret = e->ret;
+                uint64_t* ret = e->ret;
                 Value key = name.toPlainValue();
                 index = key.toNumber(state);
                 if ((uint64_t)index != Value::InvalidIndexValue) {
@@ -1691,13 +1691,13 @@ void Object::nextIndexForward(ExecutionState& state, Object* obj, const int64_t 
     nextIndex = std::max(ret, cur + 1);
 }
 
-void Object::nextIndexBackward(ExecutionState& state, Object* obj, const int64_t cur, const int64_t end, int64_t& nextIndex)
+void Object::nextIndexBackward(ExecutionState& state, Object* obj, const uint64_t cur, const uint64_t end, uint64_t& nextIndex)
 {
     Value ptr = obj;
-    int64_t ret = end;
+    uint64_t ret = end;
     struct Data {
-        const int64_t* cur;
-        int64_t* ret;
+        const uint64_t* cur;
+        uint64_t* ret;
     } data;
     data.cur = &cur;
     data.ret = &ret;
@@ -1709,9 +1709,9 @@ void Object::nextIndexBackward(ExecutionState& state, Object* obj, const int64_t
         }
         ptr.asObject()->enumeration(
             state, [](ExecutionState& state, Object* self, const ObjectPropertyName& name, const ObjectStructurePropertyDescriptor& desc, void* data) {
-                int64_t index;
+                uint64_t index;
                 Data* e = (Data*)data;
-                int64_t* ret = e->ret;
+                uint64_t* ret = e->ret;
                 Value key = name.toPlainValue();
                 index = key.toNumber(state);
                 if ((uint64_t)index != Value::InvalidIndexValue) {
@@ -1727,12 +1727,12 @@ void Object::nextIndexBackward(ExecutionState& state, Object* obj, const int64_t
     nextIndex = std::min(ret, cur - 1);
 }
 
-void Object::sort(ExecutionState& state, int64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
+void Object::sort(ExecutionState& state, uint64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
 {
     ValueVectorWithInlineStorage64 selected;
 
-    int64_t n = 0;
-    int64_t k = 0;
+    uint64_t n = 0;
+    uint64_t k = 0;
 
     while (k < length) {
         Value idx = Value(k);
@@ -1741,7 +1741,7 @@ void Object::sort(ExecutionState& state, int64_t length, const std::function<boo
             n++;
             k++;
         } else {
-            int64_t result;
+            uint64_t result;
             nextIndexForward(state, this, k, length, result);
             k = result;
         }
@@ -1758,7 +1758,7 @@ void Object::sort(ExecutionState& state, int64_t length, const std::function<boo
         });
     }
 
-    int64_t i;
+    uint64_t i;
     for (i = 0; i < n; i++) {
         setThrowsException(state, ObjectPropertyName(state, Value(i)), selected[i], this);
     }
@@ -1769,7 +1769,7 @@ void Object::sort(ExecutionState& state, int64_t length, const std::function<boo
             deleteOwnProperty(state, ObjectPropertyName(state, Value(i)));
             i++;
         } else {
-            int64_t result;
+            uint64_t result;
             nextIndexForward(state, this, i, length, result);
             i = result;
         }

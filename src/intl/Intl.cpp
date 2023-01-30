@@ -1449,7 +1449,7 @@ ValueVector Intl::canonicalizeLocaleList(ExecutionState& state, Value locales)
             k++;
         } else {
             // Increase k by 1.
-            int64_t nextIndex;
+            uint64_t nextIndex;
             Object::nextIndexForward(state, O, k, len, nextIndex);
             k = nextIndex;
         }

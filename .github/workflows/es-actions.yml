@@ -39,8 +39,9 @@ jobs:
         brew install cmake ninja pkg-config icu4c
     - name: Build x64
       env:
-        BUILD_OPTIONS: -DESCARGOT_ARCH=x64 -DESCARGOT_HOST=darwin -DESCARGOT_MODE=debug -DESCARGOT_OUTPUT=shell_test -GNinja
+        BUILD_OPTIONS: -DESCARGOT_ARCH=x64 -DESCARGOT_HOST=darwin -DESCARGOT_MODE=debug -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_OUTPUT=shell_test -GNinja
       run: |
+        export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
         cmake -H. -Bout/mac/x64 $BUILD_OPTIONS
         ninja -Cout/mac/x64
         ./tools/run-tests.py --engine="./out/mac/x64/escargot" new-es
@@ -81,7 +82,7 @@ jobs:
         path: |
           ~/.android/avd/*
           ~/.android/adb*
-        key: avd-29
+        key: avd-29-${{ matrix.arch }}
     - name: Create AVD and generate snapshot for caching
       if: steps.avd-cache.outputs.cache-hit != 'true'
       uses: reactivecircus/android-emulator-runner@v2

@@ -111,6 +111,7 @@ public:
         setNameValue(state, v);
     }
 
+    /*
     ObjectPropertyName(ExecutionState& state, const int64_t& v)
     {
         if (v >= 0 && v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -119,8 +120,8 @@ public:
             setNameValue(state, Value(v));
         }
     }
+    */
 
-    /*
     ObjectPropertyName(ExecutionState& state, const size_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -129,8 +130,8 @@ public:
             setNameValue(state, Value(v));
         }
     }
-    */
 
+#ifdef ESCARGOT_32
     ObjectPropertyName(ExecutionState& state, const uint64_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -139,7 +140,18 @@ public:
             setNameValue(state, Value(v));
         }
     }
-
+#endif
+    /*
+#ifdef ESCARGOT_32
+    ObjectPropertyName(ExecutionState& state, const uint64_t& v)
+    {
+        if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
+            setUIntValue((uint32_t)v);
+        } else {
+            setNameValue(state, Value(v));
+        }
+    }
+#else
     ObjectPropertyName(ExecutionState& state, const uint32_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -148,6 +160,8 @@ public:
             setNameValue(state, Value(v));
         }
     }
+#endif
+*/
 
     ObjectPropertyName(Symbol* symbol)
     {
@@ -956,10 +970,10 @@ public:
         m_structure = m_structure->convertToNonTransitionStructure();
     }
 
-    static void nextIndexForward(ExecutionState& state, Object* obj, const int64_t cur, const int64_t len, int64_t& nextIndex);
-    static void nextIndexBackward(ExecutionState& state, Object* obj, const int64_t cur, const int64_t end, int64_t& nextIndex);
+    static void nextIndexForward(ExecutionState& state, Object* obj, const uint64_t cur, const uint64_t len, uint64_t& nextIndex);
+    static void nextIndexBackward(ExecutionState& state, Object* obj, const uint64_t cur, const uint64_t end, uint64_t& nextIndex);
 
-    virtual void sort(ExecutionState& state, int64_t length, const std::function<bool(const Value& a, const Value& b)>& comp);
+    virtual void sort(ExecutionState& state, uint64_t length, const std::function<bool(const Value& a, const Value& b)>& comp);
 
     virtual bool isInlineCacheable()
     {

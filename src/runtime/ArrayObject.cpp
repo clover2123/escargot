@@ -282,7 +282,7 @@ void ArrayObject::enumeration(ExecutionState& state, bool (*callback)(ExecutionS
     Object::enumeration(state, callback, data, shouldSkipSymbolKey);
 }
 
-void ArrayObject::sort(ExecutionState& state, int64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
+void ArrayObject::sort(ExecutionState& state, uint64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
 {
     if (isFastModeArray()) {
         if (length) {
@@ -516,15 +516,15 @@ bool ArrayObject::setArrayLength(ExecutionState& state, const uint32_t newLength
         }
         return true;
     } else {
-        int64_t oldLen = arrayLength(state);
-        int64_t newLen = newLength;
+        uint64_t oldLen = arrayLength(state);
+        uint64_t newLen = newLength;
 
         while (newLen < oldLen) {
             oldLen--;
             ObjectPropertyName key(state, oldLen);
 
             if (!getOwnProperty(state, key).hasValue()) {
-                int64_t result;
+                uint64_t result;
                 Object::nextIndexBackward(state, this, oldLen, -1, result);
                 oldLen = result;
 

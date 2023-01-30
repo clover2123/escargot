@@ -121,12 +121,12 @@ void TypedArrayObject::enumeration(ExecutionState& state, bool (*callback)(Execu
     Object::enumeration(state, callback, data, shouldSkipSymbolKey);
 }
 
-void TypedArrayObject::sort(ExecutionState& state, int64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
+void TypedArrayObject::sort(ExecutionState& state, uint64_t length, const std::function<bool(const Value& a, const Value& b)>& comp)
 {
     if (length) {
         Value* tempBuffer = (Value*)GC_MALLOC(sizeof(Value) * length);
 
-        for (int64_t i = 0; i < length; i++) {
+        for (uint64_t i = 0; i < length; i++) {
             tempBuffer[i] = integerIndexedElementGet(state, i).value(state, this);
         }
 
@@ -137,7 +137,7 @@ void TypedArrayObject::sort(ExecutionState& state, int64_t length, const std::fu
             return true;
         });
 
-        for (int64_t i = 0; i < length; i++) {
+        for (uint64_t i = 0; i < length; i++) {
             integerIndexedElementSet(state, i, tempBuffer[i]);
         }
         GC_FREE(tempBuffer);
