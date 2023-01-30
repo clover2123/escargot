@@ -120,6 +120,7 @@ public:
         }
     }
 
+    /*
     ObjectPropertyName(ExecutionState& state, const size_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -128,7 +129,8 @@ public:
             setNameValue(state, Value(v));
         }
     }
-#ifdef ESCARGOT_32
+    */
+
     ObjectPropertyName(ExecutionState& state, const uint64_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -137,7 +139,7 @@ public:
             setNameValue(state, Value(v));
         }
     }
-#else
+
     ObjectPropertyName(ExecutionState& state, const uint32_t& v)
     {
         if (v <= MAXIMUM_UINT_FOR_32BIT_PROPERTY_NAME) {
@@ -146,7 +148,6 @@ public:
             setNameValue(state, Value(v));
         }
     }
-#endif
 
     ObjectPropertyName(Symbol* symbol)
     {

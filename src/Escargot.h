@@ -470,7 +470,7 @@ void customEscargotErrorLogger(const char* format, ...);
 #if defined(COMPILER_GCC) || defined(COMPILER_CLANG)
 #define ESCARGOT_COMPUTED_GOTO_INTERPRETER
 // some devices cannot support getting label address from outside well
-#if defined(CPU_ARM64) || (defined(CPU_ARM32) && defined(COMPILER_CLANG))
+#if (defined(CPU_ARM64) || (defined(CPU_ARM32) && defined(COMPILER_CLANG))) || defined(TARGET_OS_MAC)
 #define ESCARGOT_COMPUTED_GOTO_INTERPRETER_INIT_WITH_NULL
 #endif
 #endif
