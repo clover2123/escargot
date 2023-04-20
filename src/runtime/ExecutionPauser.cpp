@@ -183,7 +183,7 @@ Value ExecutionPauser::start(ExecutionState& state, ExecutionPauser* self, Objec
         }
 #endif /* ESCARGOT_DEBUGGER */
 
-        result = Interpreter::interpret(es, self->m_byteCodeBlock, startPos, self->m_registerFile);
+        result = Interpreter::interpret(es, nullptr, self->m_byteCodeBlock, startPos, self->m_registerFile);
 
 #ifdef ESCARGOT_DEBUGGER
         if (activeSavedStackTraceExecutionState != ESCARGOT_DEBUGGER_NO_STACK_TRACE_RESTORE) {

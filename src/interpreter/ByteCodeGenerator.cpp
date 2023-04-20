@@ -60,6 +60,7 @@ ByteCodeGenerateContext::ByteCodeGenerateContext(InterpretedCodeBlock* codeBlock
     , m_lexicalBlockIndex(0)
     , m_classInfo()
     , m_numeralLiteralData(numeralLiteralData) // should be NumeralLiteralVector
+    , m_returnRegister(SIZE_MAX)
 #ifdef ESCARGOT_DEBUGGER
     , m_breakpointContext(nullptr)
 #endif /* ESCARGOT_DEBUGGER */
@@ -574,6 +575,33 @@ void ByteCodeGenerator::relocateByteCode(ByteCodeBlock* block)
             ASSIGN_STACKINDEX_IF_NEEDED(cd->m_calleeIndex, stackBase, stackBaseWillBe, stackVariableSize);
             ASSIGN_STACKINDEX_IF_NEEDED(cd->m_argumentsStartIndex, stackBase, stackBaseWillBe, stackVariableSize);
             ASSIGN_STACKINDEX_IF_NEEDED(cd->m_resultIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            break;
+        }
+        // TCO
+        case TailCallOpcode: {
+            TailCall* cd = (TailCall*)currentCode;
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_calleeIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_argumentsStartIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            break;
+        }
+        case TailRecursionCallOpcode: {
+            TailRecursionCall* cd = (TailRecursionCall*)currentCode;
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_calleeIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_argumentsStartIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            break;
+        }
+        case TailCallWithReceiverOpcode: {
+            TailCallWithReceiver* cd = (TailCallWithReceiver*)currentCode;
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_receiverIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_calleeIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_argumentsStartIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            break;
+        }
+        case TailRecursionCallWithReceiverOpcode: {
+            TailRecursionCallWithReceiver* cd = (TailRecursionCallWithReceiver*)currentCode;
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_receiverIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_calleeIndex, stackBase, stackBaseWillBe, stackVariableSize);
+            ASSIGN_STACKINDEX_IF_NEEDED(cd->m_argumentsStartIndex, stackBase, stackBaseWillBe, stackVariableSize);
             break;
         }
         case CallFunctionComplexCaseOpcode: {

@@ -95,7 +95,7 @@ OpcodeTable::OpcodeTable()
 #else
     size_t dummyCode = reinterpret_cast<size_t>(FillOpcodeTableAddress[0]);
 #endif
-    Interpreter::interpret(&state, nullptr, reinterpret_cast<size_t>(&dummyCode), nullptr);
+    Interpreter::interpret(&state, nullptr, nullptr, reinterpret_cast<size_t>(&dummyCode), nullptr);
 #endif
 }
 
@@ -185,6 +185,9 @@ public:
 
     static int evaluateImportAssertionOperation(ExecutionState& state, const Value& options);
 
+    static Value tailRecursionCallSlowCase(ExecutionState& state, TailRecursionCall* code, const Value& callee, Value* registerFile);
+    static Value tailRecursionCallWithReceiverSlowCase(ExecutionState& state, TailRecursionCallWithReceiver* code, const Value& callee, const Value& receiver, Value* registerFile);
+
 private:
     static bool abstractLeftIsLessThanRightSlowCase(ExecutionState& state, const Value& left, const Value& right, bool switched);
     static bool abstractLeftIsLessThanEqualRightSlowCase(ExecutionState& state, const Value& left, const Value& right, bool switched);
@@ -196,7 +199,7 @@ private:
 };
 
 
-Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock, size_t programCounter, Value* registerFile)
+Value Interpreter::interpret(ExecutionState* state, ScriptFunctionObject* function, ByteCodeBlock* byteCodeBlock, size_t programCounter, Value* registerFile)
 {
     state->m_programCounter = &programCounter;
     {
@@ -735,6 +738,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             if (UNLIKELY(!callee.isPointerValue())) {
                 ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
+
             // Return F.[[Call]](V, argumentsList).
             registerFile[code->m_resultIndex] = callee.asPointerValue()->call(*state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
 
@@ -755,11 +759,50 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             if (UNLIKELY(!callee.isPointerValue())) {
                 ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
+
             // Return F.[[Call]](V, argumentsList).
             registerFile[code->m_resultIndex] = callee.asPointerValue()->call(*state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
 
             ADD_PROGRAM_COUNTER(CallFunctionWithReceiver);
             NEXT_INSTRUCTION();
+        }
+
+        // TCO : normal tail call, just return the result directly
+        DEFINE_OPCODE(TailCall)
+            :
+        {
+            //printf("TailCall HIT\n");
+            TailCall* code = (TailCall*)programCounter;
+            const Value& callee = registerFile[code->m_calleeIndex];
+
+            // if PointerValue is not callable, PointerValue::call function throws builtin error
+            // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+            // If IsCallable(F) is false, throw a TypeError exception.
+            if (UNLIKELY(!callee.isPointerValue())) {
+                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+            }
+
+            // return directly
+            return callee.asPointerValue()->call(*state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+        }
+
+        DEFINE_OPCODE(TailCallWithReceiver)
+            :
+        {
+            //printf("TailCallWithReceiver HIT\n");
+            TailCallWithReceiver* code = (TailCallWithReceiver*)programCounter;
+            const Value& callee = registerFile[code->m_calleeIndex];
+            const Value& receiver = registerFile[code->m_receiverIndex];
+
+            // if PointerValue is not callable, PointerValue::call function throws builtin error
+            // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+            // If IsCallable(F) is false, throw a TypeError exception.
+            if (UNLIKELY(!callee.isPointerValue())) {
+                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+            }
+
+            // return directly
+            return callee.asPointerValue()->call(*state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
         }
 
         DEFINE_OPCODE(LoadByHeapIndex)
@@ -1483,6 +1526,94 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             StoreByNameWithAddress* code = (StoreByNameWithAddress*)programCounter;
             InterpreterSlowPath::storeByNameWithAddress(*state, code, registerFile);
             ADD_PROGRAM_COUNTER(StoreByNameWithAddress);
+            NEXT_INSTRUCTION();
+        }
+
+        // TCO : tail recursion case
+        DEFINE_OPCODE(TailRecursionCall)
+            :
+        {
+            //printf("TailRecursionCall called\n");
+            // function should not be null
+            ASSERT(!!function);
+
+            TailRecursionCall* code = (TailRecursionCall*)programCounter;
+            const Value& callee = registerFile[code->m_calleeIndex];
+
+            if (UNLIKELY(callee != Value(function))) {
+                // slow path
+                return InterpreterSlowPath::tailRecursionCallSlowCase(*state, code, callee, registerFile);
+            }
+
+            //printf("TailRecursionCall HIT\n");
+            // fast tail recursion
+            ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
+            ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
+
+            // its safe to overwrite arguments because old arguments are no longer necessary
+            ASSERT(state->m_argc == code->m_argumentCount); // FIXME
+            for (int i = 0; i < code->m_argumentCount; i++) {
+                state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
+            }
+
+            // skip to set this value (identical to the previous value)
+            /*
+            if (state->inStrictMode()) {
+                registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = Value();
+            } else {
+                registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->context()->globalObjectProxy();
+            }
+            */
+
+            // set programCounter
+            programCounter = reinterpret_cast<size_t>(byteCodeBlock->m_code.data());
+            state->m_programCounter = &programCounter;
+
+            NEXT_INSTRUCTION();
+        }
+
+        DEFINE_OPCODE(TailRecursionCallWithReceiver)
+            :
+        {
+            //printf("TailRecursionCallWithReceiver called\n");
+            // function should not be null
+            ASSERT(!!function);
+
+            TailRecursionCallWithReceiver* code = (TailRecursionCallWithReceiver*)programCounter;
+            const Value& callee = registerFile[code->m_calleeIndex];
+            const Value& receiver = registerFile[code->m_receiverIndex];
+
+            if (UNLIKELY(callee != Value(function))) {
+                // slow path
+                return InterpreterSlowPath::tailRecursionCallWithReceiverSlowCase(*state, code, callee, receiver, registerFile);
+            }
+
+            //printf("TailRecursionCallWithReceiver HIT\n");
+            // fast tail recursion with receiver
+            ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
+            ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
+
+            // its safe to overwrite arguments because old arguments are no longer necessary/valid
+            ASSERT(state->m_argc == code->m_argumentCount); // FIXME
+            for (int i = 0; i < code->m_argumentCount; i++) {
+                state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
+            }
+
+            // set this value (receiver) // FIXME skip this value setting?
+            if (state->inStrictMode()) {
+                registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver;
+            } else {
+                if (receiver.isUndefinedOrNull()) {
+                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->context()->globalObjectProxy();
+                } else {
+                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver.toObject(*state);
+                }
+            }
+
+            // set programCounter
+            programCounter = reinterpret_cast<size_t>(byteCodeBlock->m_code.data());
+            state->m_programCounter = &programCounter;
+
             NEXT_INSTRUCTION();
         }
 
@@ -2865,7 +2996,7 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
             });
 
             size_t newPc = programCounter + sizeof(TryOperation);
-            Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+            Interpreter::interpret(newState, nullptr, byteCodeBlock, newPc, registerFile);
             if (newState->inExecutionStopState()) {
                 return Value();
             }
@@ -2915,7 +3046,7 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
                     ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
                         state.m_onCatch = in;
                     });
-                    Interpreter::interpret(newState, byteCodeBlock, (size_t)codeBuffer + code->m_catchPosition, registerFile);
+                    Interpreter::interpret(newState, nullptr, byteCodeBlock, (size_t)codeBuffer + code->m_catchPosition, registerFile);
                     if (newState->inExecutionStopState()) {
                         return Value();
                     }
@@ -2930,7 +3061,7 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
             ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
                 state.m_onCatch = in;
             });
-            Interpreter::interpret(newState, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
+            Interpreter::interpret(newState, nullptr, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
             if (UNLIKELY(newState->inExecutionStopState() || newState->parent()->inExecutionStopState())) {
                 return Value();
             }
@@ -2947,7 +3078,7 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
         ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
             state.m_onFinally = in;
         });
-        Interpreter::interpret(newState, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
+        Interpreter::interpret(newState, nullptr, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
         if (newState->inExecutionStopState() || newState->parent()->inExecutionStopState()) {
             return Value();
         }
@@ -2966,7 +3097,7 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
         ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
             state.m_onFinally = in;
         });
-        Interpreter::interpret(newState, byteCodeBlock, (size_t)codeBuffer + code->m_tryCatchEndPosition, registerFile);
+        Interpreter::interpret(newState, nullptr, byteCodeBlock, (size_t)codeBuffer + code->m_tryCatchEndPosition, registerFile);
         if (newState->inExecutionStopState()) {
             return Value();
         }
@@ -3270,7 +3401,7 @@ NEVER_INLINE Value InterpreterSlowPath::openLexicalEnvironment(ExecutionState*& 
     size_t newPc = programCounter + sizeof(OpenLexicalEnvironment);
     char* codeBuffer = byteCodeBlock->m_code.data();
 
-    Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+    Interpreter::interpret(newState, nullptr, byteCodeBlock, newPc, registerFile);
 
     if (newState->inExecutionStopState() || (!inWithStatement && newState->parent()->inExecutionStopState())) {
         return Value();
@@ -3394,7 +3525,7 @@ NEVER_INLINE Value InterpreterSlowPath::blockOperation(ExecutionState*& state, B
         newState->ensureRareData()->m_controlFlowRecord = state->rareData()->m_controlFlowRecord;
     }
 
-    Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+    Interpreter::interpret(newState, nullptr, byteCodeBlock, newPc, registerFile);
     if (newState->inExecutionStopState() || (inPauserResumeProcess && newState->parent()->inExecutionStopState())) {
         return Value();
     }
@@ -4534,5 +4665,37 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
     }
 
     return Platform::ModuleES;
+}
+
+NEVER_INLINE Value InterpreterSlowPath::tailRecursionCallSlowCase(ExecutionState& state, TailRecursionCall* code, const Value& callee, Value* registerFile)
+{
+    // fail to tail recursion
+    // convert to TailCall
+    code->changeOpcode(Opcode::TailCallOpcode);
+
+    // if PointerValue is not callable, PointerValue::call function throws builtin error
+    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+    // If IsCallable(F) is false, throw a TypeError exception.
+    if (UNLIKELY(!callee.isPointerValue())) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+    }
+
+    return callee.asPointerValue()->call(state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+}
+
+NEVER_INLINE Value InterpreterSlowPath::tailRecursionCallWithReceiverSlowCase(ExecutionState& state, TailRecursionCallWithReceiver* code, const Value& callee, const Value& receiver, Value* registerFile)
+{
+    // fail to tail recursion
+    // convert to TailCall
+    code->changeOpcode(Opcode::TailCallWithReceiverOpcode);
+
+    // if PointerValue is not callable, PointerValue::call function throws builtin error
+    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+    // If IsCallable(F) is false, throw a TypeError exception.
+    if (UNLIKELY(!callee.isPointerValue())) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+    }
+
+    return callee.asPointerValue()->call(state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
 }
 } // namespace Escargot

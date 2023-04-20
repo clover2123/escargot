@@ -39,7 +39,7 @@ public:
         UnsignedRight,
     };
 
-    static Value interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock, size_t programCounter, Value* registerFile);
+    static Value interpret(ExecutionState* state, ScriptFunctionObject* function, ByteCodeBlock* byteCodeBlock, size_t programCounter, Value* registerFile);
 };
 } // namespace Escargot
 

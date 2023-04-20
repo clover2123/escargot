@@ -42,6 +42,11 @@ protected:
     {
     }
 
+    virtual bool isScriptSimpleFunctionObject() const override
+    {
+        return true;
+    }
+
     virtual Value call(ExecutionState& state, const Value& thisValue, const size_t argc, Value* argv) override
     {
         CHECK_STACK_OVERFLOW(state);
@@ -92,11 +97,11 @@ protected:
         }
 
         if (shouldClearStack) {
-            const Value returnValue = Interpreter::interpret(&newState, blk, programStart, registerFile);
+            const Value returnValue = Interpreter::interpret(&newState, this, blk, programStart, registerFile);
             clearStack<512>();
             return returnValue;
         } else {
-            return Interpreter::interpret(&newState, blk, programStart, registerFile);
+            return Interpreter::interpret(&newState, this, blk, programStart, registerFile);
         }
     }
 
@@ -156,7 +161,7 @@ protected:
 
         record.setNewTarget(newTarget);
 
-        const Value returnValue = Interpreter::interpret(&newState, blk, reinterpret_cast<const size_t>(blk->m_code.data()), registerFile);
+        const Value returnValue = Interpreter::interpret(&newState, this, blk, reinterpret_cast<const size_t>(blk->m_code.data()), registerFile);
         if (shouldClearStack) {
             clearStack<512>();
         }

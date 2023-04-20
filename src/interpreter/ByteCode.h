@@ -106,6 +106,10 @@ struct GlobalVariableAccessCacheItem;
     F(JumpIfEqual, 0, 0)                                    \
     F(CallFunction, -1, 0)                                  \
     F(CallFunctionWithReceiver, -1, 0)                      \
+    F(TailCall, -1, 0)                                      \
+    F(TailRecursionCall, -1, 0)                             \
+    F(TailCallWithReceiver, -1, 0)                          \
+    F(TailRecursionCallWithReceiver, -1, 0)                 \
     F(GetParameter, 0, 0)                                   \
     F(ReturnFunctionSlowCase, 0, 0)                         \
     F(TryOperation, 0, 0)                                   \
@@ -1985,6 +1989,100 @@ public:
     }
 #endif
 };
+
+// TCO
+class TailCall : public ByteCode {
+public:
+    TailCall(const ByteCodeLOC& loc, const size_t calleeIndex, const size_t argumentsStartIndex, const size_t argumentCount)
+        : ByteCode(Opcode::TailCallOpcode, loc)
+        , m_calleeIndex(calleeIndex)
+        , m_argumentsStartIndex(argumentsStartIndex)
+        , m_argumentCount(argumentCount)
+    {
+    }
+    ByteCodeRegisterIndex m_calleeIndex;
+    ByteCodeRegisterIndex m_argumentsStartIndex;
+    uint16_t m_argumentCount;
+
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("tail call r%u(r%u-r%u)", m_calleeIndex, m_argumentsStartIndex, m_argumentsStartIndex + m_argumentCount);
+    }
+#endif
+};
+
+class TailRecursionCall : public ByteCode {
+public:
+    TailRecursionCall(const ByteCodeLOC& loc, const size_t calleeIndex, const size_t argumentsStartIndex, const size_t argumentCount)
+        : ByteCode(Opcode::TailRecursionCallOpcode, loc)
+        , m_calleeIndex(calleeIndex)
+        , m_argumentsStartIndex(argumentsStartIndex)
+        , m_argumentCount(argumentCount)
+    {
+    }
+    ByteCodeRegisterIndex m_calleeIndex;
+    ByteCodeRegisterIndex m_argumentsStartIndex;
+    uint16_t m_argumentCount;
+
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("tail recursion call r%u(r%u-r%u)", m_calleeIndex, m_argumentsStartIndex, m_argumentsStartIndex + m_argumentCount);
+    }
+#endif
+};
+
+class TailCallWithReceiver : public ByteCode {
+public:
+    TailCallWithReceiver(const ByteCodeLOC& loc, const size_t receiverIndex, const size_t calleeIndex, const size_t argumentsStartIndex, const size_t argumentCount)
+        : ByteCode(Opcode::TailCallWithReceiverOpcode, loc)
+        , m_receiverIndex(receiverIndex)
+        , m_calleeIndex(calleeIndex)
+        , m_argumentsStartIndex(argumentsStartIndex)
+        , m_argumentCount(argumentCount)
+    {
+    }
+
+    ByteCodeRegisterIndex m_receiverIndex;
+    ByteCodeRegisterIndex m_calleeIndex;
+    ByteCodeRegisterIndex m_argumentsStartIndex;
+    uint16_t m_argumentCount;
+
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("tail call with receiver <- r%u,r%u(r%u-r%u)", m_receiverIndex, m_calleeIndex, m_argumentsStartIndex, m_argumentsStartIndex + m_argumentCount);
+    }
+#endif
+};
+
+class TailRecursionCallWithReceiver : public ByteCode {
+public:
+    TailRecursionCallWithReceiver(const ByteCodeLOC& loc, const size_t receiverIndex, const size_t calleeIndex, const size_t argumentsStartIndex, const size_t argumentCount)
+        : ByteCode(Opcode::TailRecursionCallWithReceiverOpcode, loc)
+        , m_receiverIndex(receiverIndex)
+        , m_calleeIndex(calleeIndex)
+        , m_argumentsStartIndex(argumentsStartIndex)
+        , m_argumentCount(argumentCount)
+    {
+    }
+
+    ByteCodeRegisterIndex m_receiverIndex;
+    ByteCodeRegisterIndex m_calleeIndex;
+    ByteCodeRegisterIndex m_argumentsStartIndex;
+    uint16_t m_argumentCount;
+
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("tail recursion call with receiver r%u,r%u(r%u-r%u)", m_receiverIndex, m_calleeIndex, m_argumentsStartIndex, m_argumentsStartIndex + m_argumentCount);
+    }
+#endif
+};
+
+COMPILE_ASSERT(sizeof(TailCall) == sizeof(TailRecursionCall), "");
+COMPILE_ASSERT(sizeof(TailCallWithReceiver) == sizeof(TailRecursionCallWithReceiver), "");
 
 class CallFunctionComplexCase : public ByteCode {
 public:
