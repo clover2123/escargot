@@ -74,10 +74,12 @@ ArrayObject::ArrayObject(ExecutionState& state, Object* proto, const uint64_t& s
     : ArrayObject(state, proto)
 {
     if (UNLIKELY(size > ((1LL << 32LL) - 1LL))) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
+        RELEASE_ASSERT_NOT_REACHED();
+        //ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
     }
 
     setArrayLength(state, size, true, shouldConsiderHole);
+    ASSERT(!state.hasPendingException());
 }
 
 ArrayObject::ArrayObject(ExecutionState& state, const Value* src, const uint64_t& size)
@@ -149,7 +151,7 @@ bool ArrayObject::defineOwnProperty(ExecutionState& state, const ObjectPropertyN
             newLen = desc.value().toUint32(state);
             // If newLen is not equal to ToNumber( Desc.[[Value]]), throw a RangeError exception.
             if (newLen != desc.value().toNumber(state)) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
+                THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
             }
         }
         if (!isLengthPropertyWritable() && desc.isValuePresent() && m_arrayLength != newLen) {
@@ -211,6 +213,7 @@ bool ArrayObject::defineOwnProperty(ExecutionState& state, const ObjectPropertyN
                     goto NonFastPath;
                 }
                 if (UNLIKELY(!setArrayLength(state, idx + 1)) || UNLIKELY(!isFastModeArray())) {
+                    RETURN_ZERO_IF_PENDING_EXCEPTION
                     goto NonFastPath;
                 }
             }
@@ -310,6 +313,7 @@ void ArrayObject::sort(ExecutionState& state, int64_t length, const std::functio
 
             if (arrayLength(state) != orgLength) {
                 setArrayLength(state, orgLength);
+                ASSERT(!state.hasPendingException());
             }
 
             if (isFastModeArray()) {
@@ -358,6 +362,7 @@ void ArrayObject::convertIntoNonFastMode(ExecutionState& state)
     for (size_t i = 0; i < length; i++) {
         if (!tempFastModeData[i].isEmpty()) {
             Object::defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(i)), ObjectPropertyDescriptor(tempFastModeData[i], ObjectPropertyDescriptor::AllPresent));
+            ASSERT(!state.hasPendingException());
         }
     }
 
@@ -381,7 +386,7 @@ bool ArrayObject::setArrayLength(ExecutionState& state, const Value& newLength)
     uint32_t newLen = newLength.toUint32(state);
     // If newLen is not equal to ToNumber( Desc.[[Value]]), throw a RangeError exception.
     if (newLen != newLength.toNumber(state)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
+        THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
     }
 
     bool ret;
@@ -604,6 +609,7 @@ bool ArrayObject::setIndexedProperty(ExecutionState& state, const Value& propert
                     return false;
                 }
                 if (UNLIKELY(!setArrayLength(state, idx + 1)) || UNLIKELY(!isFastModeArray())) {
+                    RETURN_ZERO_IF_PENDING_EXCEPTION
                     return set(state, ObjectPropertyName(state, property), value, this);
                 }
                 // fast, non-fast mode can be changed while changing length
@@ -679,6 +685,7 @@ std::pair<Value, bool> ArrayIteratorObject::advance(ExecutionState& state)
     if (a->isTypedArrayObject()) {
         // If IsDetachedBuffer(a.[[ViewedArrayBuffer]]) is true, throw a TypeError exception.
         if (a->asArrayBufferView()->buffer()->isDetachedBuffer()) {
+            // FIXME THROW
             ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().ArrayIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_DetachedBuffer);
             return std::make_pair(Value(), false);
         }

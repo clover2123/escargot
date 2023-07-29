@@ -30,7 +30,7 @@ namespace Escargot {
 static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!newTarget.hasValue()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
     }
 
     // Let map be ? OrdinaryCreateFromConstructor(NewTarget, "%MapPrototype%", « [[MapData]] »).
@@ -51,11 +51,12 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
     Value adder = map->Object::get(state, ObjectPropertyName(state.context()->staticStrings().set)).value(state, map);
     // If IsCallable(adder) is false, throw a TypeError exception.
     if (!adder.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
     }
 
     // Let iteratorRecord be ? GetIterator(iterable).
     auto iteratorRecord = IteratorObject::getIterator(state, iterable);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     while (true) {
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
         if (!next.hasValue()) {
@@ -79,6 +80,7 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
             // Let status be Call(adder, map, « k.[[Value]], v.[[Value]] »).
             Value argv[2] = { k, v };
             Object::call(state, adder, map, 2, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         } catch (const Value& v) {
             // we should save thrown value bdwgc cannot track thrown value
             Value exceptionValue = v;
@@ -90,10 +92,10 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
     return map;
 }
 
-#define RESOLVE_THIS_BINDING_TO_MAP(NAME, OBJ, BUILT_IN_METHOD)                                                                                                                                                                                        \
-    if (!thisValue.isObject() || !thisValue.asObject()->isMapObject()) {                                                                                                                                                                               \
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().OBJ.string(), true, state.context()->staticStrings().BUILT_IN_METHOD.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver); \
-    }                                                                                                                                                                                                                                                  \
+#define RESOLVE_THIS_BINDING_TO_MAP(NAME, OBJ, BUILT_IN_METHOD)                                                                                                                                                                                          \
+    if (!thisValue.isObject() || !thisValue.asObject()->isMapObject()) {                                                                                                                                                                                 \
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().OBJ.string(), true, state.context()->staticStrings().BUILT_IN_METHOD.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver); \
+    }                                                                                                                                                                                                                                                    \
     MapObject* NAME = thisValue.asObject()->asMapObject();
 
 static Value builtinMapClear(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -138,7 +140,7 @@ static Value builtinMapForEach(ExecutionState& state, Value thisValue, size_t ar
     Value callbackfn = argv[0];
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Map.string(), true, state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Map.string(), true, state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
     Value T;
@@ -154,6 +156,7 @@ static Value builtinMapForEach(ExecutionState& state, Value thisValue, size_t ar
             // Perform ? Call(callbackfn, T, « e.[[Value]], e.[[Key]], M »).
             Value argv[3] = { Value(entries[i].second), Value(entries[i].first), Value(M) };
             Object::call(state, callbackfn, T, 3, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
     }
 
@@ -187,7 +190,7 @@ static Value builtinMapSizeGetter(ExecutionState& state, Value thisValue, size_t
 static Value builtinMapIteratorNext(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!thisValue.isObject() || !thisValue.asObject()->isMapIteratorObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().MapIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().MapIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
     }
     MapIteratorObject* iter = thisValue.asObject()->asIteratorObject()->asMapIteratorObject();
     return iter->next(state);

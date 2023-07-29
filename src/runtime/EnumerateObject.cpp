@@ -225,7 +225,8 @@ void EnumerateObjectWithIteration::executeEnumeration(ExecutionState& state, Enc
 
         // v8 throw exception when there is too many things on prototype chain
         if (UNLIKELY(m_hiddenClassChain.size() > 1024 * 128)) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "Maximum call stack size exceeded");
+            RELEASE_ASSERT_NOT_REACHED();
+            //ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "Maximum call stack size exceeded");
         }
     }
 

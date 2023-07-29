@@ -136,6 +136,7 @@ ErrorObject::ErrorObject(ExecutionState& state, Object* proto, String* errorMess
     if (errorMessage->length()) {
         defineOwnPropertyThrowsException(state, state.context()->staticStrings().message,
                                          ObjectPropertyDescriptor(errorMessage, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent)));
+        ASSERT(!state.hasPendingException());
     }
 }
 

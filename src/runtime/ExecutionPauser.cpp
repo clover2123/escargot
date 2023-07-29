@@ -228,6 +228,7 @@ Value ExecutionPauser::start(ExecutionState& state, ExecutionPauser* self, Objec
                 ASSERT(from == StartFrom::Async);
                 Value argv = result;
                 Object::call(state, self->m_promiseCapability.m_resolveFunction, Value(), 1, &argv);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
                 result = self->m_promiseCapability.m_promise;
             }
             self->release();
@@ -251,6 +252,7 @@ Value ExecutionPauser::start(ExecutionState& state, ExecutionPauser* self, Objec
             ASSERT(from == StartFrom::Async);
             Value argv = thrownValue;
             Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Return Completion { [[Type]]: return, [[Value]]: promiseCapability.[[Promise]], [[Target]]: empty }.
             result = promiseCapability.m_promise;
         }

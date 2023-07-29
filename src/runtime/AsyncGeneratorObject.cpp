@@ -90,6 +90,7 @@ Value AsyncGeneratorObject::asyncGeneratorEnqueue(ExecutionState& state, const V
 {
     // Let promiseCapability be ! NewPromiseCapability(%Promise%).
     PromiseReaction::Capability promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // If Type(generator) is not Object, or if generator does not have an [[AsyncGeneratorState]] internal slot, then
     if (!generator.isObject() || !generator.asObject()->isAsyncGeneratorObject()) {
         // Let badGeneratorError be a newly created TypeError object.
@@ -97,6 +98,7 @@ Value AsyncGeneratorObject::asyncGeneratorEnqueue(ExecutionState& state, const V
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « badGeneratorError »).
         Value argv(badGeneratorError);
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -159,6 +161,7 @@ Value AsyncGeneratorObject::asyncGeneratorResumeNext(ExecutionState& state, Asyn
                 generator->m_asyncGeneratorState = AsyncGeneratorObject::AwaitingReturn;
                 // Let promise be ? PromiseResolve(%Promise%, « completion.[[Value]] »).
                 auto promise = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), next.m_value)->asPromiseObject();
+                ASSERT(!state.hasPendingException());
                 // Let stepsFulfilled be the algorithm steps defined in AsyncGeneratorResumeNext Return Processor Fulfilled Functions.
                 // Let onFulfilled be CreateBuiltinFunction(stepsFulfilled, « [[Generator]] »).
                 // Set onFulfilled.[[Generator]] to generator.
@@ -221,6 +224,7 @@ Value AsyncGeneratorObject::asyncGeneratorResolve(ExecutionState& state, AsyncGe
     Value iteratorResult = IteratorObject::createIterResultObject(state, value, done);
     // Perform ! Call(promiseCapability.[[Resolve]], undefined, « iteratorResult »).
     Object::call(state, promiseCapability.m_resolveFunction, Value(), 1, &iteratorResult);
+    ASSERT(!state.hasPendingException());
     // Perform ! AsyncGeneratorResumeNext(generator).
     AsyncGeneratorObject::asyncGeneratorResumeNext(state, generator);
     // Return undefined.
@@ -242,6 +246,7 @@ Value AsyncGeneratorObject::asyncGeneratorReject(ExecutionState& state, AsyncGen
     auto promiseCapability = next.m_capability;
     // Perform ! Call(promiseCapability.[[Reject]], undefined, « exception »).
     Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &exception);
+    ASSERT(!state.hasPendingException());
     // Perform ! AsyncGeneratorResumeNext(generator).
     AsyncGeneratorObject::asyncGeneratorResumeNext(state, generator);
     // Return undefined.

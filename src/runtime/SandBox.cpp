@@ -297,7 +297,8 @@ void SandBox::throwException(ExecutionState& state, const Value& exception)
     // We MUST save thrown exception Value.
     // because bdwgc cannot track `thrown value`(may turned off by GC_DONT_REGISTER_MAIN_STATIC_DATA)
     m_exception = exception;
-    throw exception;
+    // pending throw an exception
+    // throw exception;
 }
 
 void SandBox::rethrowPreviouslyCaughtException(ExecutionState& state, Value exception, const StackTraceDataVector& stackTraceDataVector)
@@ -315,7 +316,7 @@ void SandBox::rethrowPreviouslyCaughtException(ExecutionState& state, Value exce
 static Value builtinErrorObjectStackInfo(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!(LIKELY(thisValue.isPointerValue() && thisValue.asPointerValue()->isErrorObject()))) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "get Error.prototype.stack called on incompatible receiver");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "get Error.prototype.stack called on incompatible receiver");
     }
 
     ErrorObject* obj = thisValue.asObject()->asErrorObject();

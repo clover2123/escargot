@@ -31,7 +31,7 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
 {
     // If NewTarget is undefined, throw a TypeError exception.
     if (!newTarget.hasValue()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
     }
 
     // Let set be ? OrdinaryCreateFromConstructor(NewTarget, "%SetPrototype%", « [[SetData]] »).
@@ -56,10 +56,11 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
     Value adder = set->get(state, ObjectPropertyName(state.context()->staticStrings().add)).value(state, set);
     // If IsCallable(adder) is false, throw a TypeError exception.
     if (!adder.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
     }
     // Let iteratorRecord be ? GetIterator(iterable).
     auto iteratorRecord = IteratorObject::getIterator(state, iterable);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Repeat
     while (true) {
@@ -76,6 +77,7 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
         try {
             Value argv[1] = { nextValue };
             Object::call(state, adder, set, 1, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         } catch (const Value& v) {
             // we should save thrown value bdwgc cannot track thrown value
             Value exceptionValue = v;
@@ -87,10 +89,10 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
     return set;
 }
 
-#define RESOLVE_THIS_BINDING_TO_SET(NAME, OBJ, BUILT_IN_METHOD)                                                                                                                                                                                        \
-    if (!thisValue.isObject() || !thisValue.asObject()->isSetObject()) {                                                                                                                                                                               \
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().OBJ.string(), true, state.context()->staticStrings().BUILT_IN_METHOD.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver); \
-    }                                                                                                                                                                                                                                                  \
+#define RESOLVE_THIS_BINDING_TO_SET(NAME, OBJ, BUILT_IN_METHOD)                                                                                                                                                                                          \
+    if (!thisValue.isObject() || !thisValue.asObject()->isSetObject()) {                                                                                                                                                                                 \
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().OBJ.string(), true, state.context()->staticStrings().BUILT_IN_METHOD.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver); \
+    }                                                                                                                                                                                                                                                    \
     SetObject* NAME = thisValue.asObject()->asSetObject();
 
 static Value builtinSetAdd(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -129,7 +131,7 @@ static Value builtinSetForEach(ExecutionState& state, Value thisValue, size_t ar
     Value callbackfn = argv[0];
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Set.string(), true, state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Set.string(), true, state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
     Value T;
@@ -147,6 +149,7 @@ static Value builtinSetForEach(ExecutionState& state, Value thisValue, size_t ar
             // Perform ? Call(callbackfn, T, « e, e, S »).
             Value argv[3] = { Value(e), Value(e), Value(S) };
             Object::call(state, callbackfn, T, 3, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
     }
 
@@ -174,7 +177,7 @@ static Value builtinSetSizeGetter(ExecutionState& state, Value thisValue, size_t
 static Value builtinSetIteratorNext(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!thisValue.isObject() || !thisValue.asObject()->isSetIteratorObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().SetIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().SetIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
     }
     SetIteratorObject* iter = thisValue.asObject()->asIteratorObject()->asSetIteratorObject();
     return iter->next(state);

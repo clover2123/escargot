@@ -449,6 +449,10 @@ Value Script::execute(ExecutionState& state, bool isExecuteOnEvalFunction, bool 
 
         for (size_t i = 0; i < globalLexicalVectorLen; i++) {
             codeExecutionState->lexicalEnvironment()->record()->createBinding(*codeExecutionState, globalLexicalVector[i].m_name, false, globalLexicalVector[i].m_isMutable, false);
+            if (UNLIKELY(codeExecutionState->hasPendingException())) {
+                state.setPendingException();
+                return Value(Value::Exception);
+            }
         }
 
         for (size_t i = 0; i < identifierVectorLen; i++) {
@@ -456,6 +460,10 @@ Value Script::execute(ExecutionState& state, bool isExecuteOnEvalFunction, bool 
             // Step 2. If code is eval code, then let configurableBindings be true.
             if (identifierVector[i].m_isVarDeclaration) {
                 globalVariableRecord->createBinding(*codeExecutionState, identifierVector[i].m_name, isExecuteOnEvalFunction, identifierVector[i].m_isMutable, true, m_topCodeBlock);
+                if (UNLIKELY(codeExecutionState->hasPendingException())) {
+                    state.setPendingException();
+                    return Value(Value::Exception);
+                }
             }
         }
     }
@@ -501,6 +509,7 @@ Value Script::execute(ExecutionState& state, bool isExecuteOnEvalFunction, bool 
         auto ep = new ExecutionPauser(state, fakeFunctionObject, newState, registerFile, m_topCodeBlock->byteCodeBlock());
         newState->setPauseSource(ep);
         ep->m_promiseCapability = PromiseObject::newPromiseCapability(*newState, newState->context()->globalObject()->promise());
+        ASSERT(!newState->hasPendingException());
         resultValue = ExecutionPauser::start(*newState, newState->pauseSource(), newState->pauseSource()->sourceObject(), Value(), false, false, ExecutionPauser::StartFrom::Async);
     }
 
@@ -571,6 +580,7 @@ Value Script::executeLocal(ExecutionState& state, Value thisValue, InterpretedCo
     for (size_t i = 0; i < vecLen; i++) {
         if (vec[i].m_isVarDeclaration) {
             recordToAddVariable->createBinding(state, vec[i].m_name, inStrict ? false : true, true, true, m_topCodeBlock);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
     }
 
@@ -791,6 +801,7 @@ Script::ModuleExecutionResult Script::moduleEvaluation(ExecutionState& state)
 
     // Let capability be ! NewPromiseCapability(%Promise%).
     auto capability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // Set module.[[TopLevelCapability]] to capability.
     md->m_topLevelCapability = capability;
 
@@ -1266,6 +1277,7 @@ void Script::moduleExecuteAsyncModule(ExecutionState& state)
     md->m_asyncEvaluating = true;
     // Let capability be ! NewPromiseCapability(%Promise%).
     auto capability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // Let stepsFulfilled be the steps of a CallAsyncModuleFulfilled function as specified below.
     // Let onFulfilled be CreateBuiltinFunction(stepsFulfilled, « [[Module]] »).
     // Set onFulfilled.[[Module]] to module.

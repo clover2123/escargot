@@ -187,6 +187,7 @@ void FinalizationRegistryObject::finalizer(Object* self, void* data)
                 ExecutionData* ed = (ExecutionData*)data;
                 Value argv = ed->item->heldValue;
                 Object::call(state, ed->item->source->m_cleanupCallback.value(), Value(), 1, &argv);
+                ASSERT(!state.hasPendingException());
                 return Value();
             },
                    &ed);

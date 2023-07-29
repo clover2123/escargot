@@ -98,6 +98,11 @@ public:
         return m_context;
     }
 
+    Value exception()
+    {
+        return m_exception;
+    }
+
 protected:
     void processCatch(const Value& error, SandBoxResult& result);
     void fillStackDataIntoErrorObject(const Value& e);

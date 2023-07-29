@@ -101,7 +101,9 @@ PromiseReaction::Capability PromiseObject::newPromiseCapability(ExecutionState& 
 
     // If IsConstructor(C) is false, throw a TypeError exception.
     if (!constructor->isConstructor()) {
+        // return exception done!
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Not_Constructor);
+        return PromiseReaction::Capability();
     }
 
     // Let promiseCapability be a new PromiseCapability { [[Promise]]: undefined, [[Resolve]]: undefined, [[Reject]]: undefined }.
@@ -124,12 +126,17 @@ PromiseReaction::Capability PromiseObject::newPromiseCapability(ExecutionState& 
         Value arguments[] = { executor };
         promise = Object::construct(state, constructor, 1, arguments).toObject(state);
     }
+    if (UNLIKELY(state.hasPendingException())) {
+        return PromiseReaction::Capability();
+    }
 
     Value resolveFunction = capability->get(state, strings->resolve).value(state, capability);
     Value rejectFunction = capability->get(state, strings->reject).value(state, capability);
 
     if (!resolveFunction.isCallable() || !rejectFunction.isCallable()) {
+        // return exception done!
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Promise resolve or reject function is not callable");
+        return PromiseReaction::Capability();
     }
 
     return PromiseReaction::Capability(promise, resolveFunction.asObject(), rejectFunction.asObject());
@@ -165,6 +172,9 @@ PromiseReaction::Capability PromiseObject::newPromiseResultCapability(ExecutionS
 {
     // Let C be ? SpeciesConstructor(promise, %Promise%).
     Value C = speciesConstructor(state, state.context()->globalObject()->promise());
+    if (UNLIKELY(state.hasPendingException())) {
+        return PromiseReaction::Capability();
+    }
     // Let resultCapability be ? NewPromiseCapability(C).
     return PromiseObject::newPromiseCapability(state, C.toObject(state), this);
 }
@@ -244,10 +254,12 @@ Object* PromiseObject::promiseResolve(ExecutionState& state, Object* C, const Va
     }
     // Let promiseCapability be ? NewPromiseCapability(C).
     PromiseReaction::Capability capability = PromiseObject::newPromiseCapability(state, C);
+    RETURN_NULL_IF_PENDING_EXCEPTION
 
     // Perform ? Call(promiseCapability.[[Resolve]], undefined, « x »).
     Value arguments[] = { x };
     Object::call(state, capability.m_resolveFunction, Value(), 1, arguments);
+    RETURN_NULL_IF_PENDING_EXCEPTION
     // Return promiseCapability.[[Promise]].
     return capability.m_promise;
 }
@@ -268,7 +280,7 @@ Value PromiseObject::getCapabilitiesExecutorFunction(ExecutionState& state, Valu
     // If promiseCapability.[[Reject]] is not undefined, throw a TypeError exception.
     if (!capability->getOwnProperty(state, strings->resolve).value(state, capability).isUndefined()
         || !capability->getOwnProperty(state, strings->reject).value(state, capability).isUndefined()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Executor function has already called");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "Executor function has already called");
     }
 
     // Set promiseCapability.[[Resolve]] to resolve.
@@ -438,6 +450,7 @@ Value PromiseObject::promiseThenFinally(ExecutionState& state, Value thisValue, 
     // Let result be ? Call(onFinally, undefined).
     ASSERT(onFinally.isCallable());
     Value result = Object::call(state, onFinally, Value(), 0, nullptr);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let C be F.[[Constructor]].
     // Assert: IsConstructor(C) is true.
@@ -446,6 +459,7 @@ Value PromiseObject::promiseThenFinally(ExecutionState& state, Value thisValue, 
 
     // Let promise be ? PromiseResolve(C, result).
     Value promise = PromiseObject::promiseResolve(state, C.asObject(), result);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let valueThunk be equivalent to a function that returns value.
     ExtendedNativeFunctionObject* valueThunk = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(), ValueThunkHelper, 0, NativeFunctionInfo::Strict));
@@ -472,6 +486,7 @@ Value PromiseObject::promiseCatchFinally(ExecutionState& state, Value thisValue,
     // Let result be ? Call(onFinally, undefined).
     ASSERT(onFinally.isCallable());
     Value result = Object::call(state, onFinally, Value(), 0, nullptr);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let C be F.[[Constructor]].
     // Assert: IsConstructor(C) is true.
@@ -480,6 +495,7 @@ Value PromiseObject::promiseCatchFinally(ExecutionState& state, Value thisValue,
 
     // Let promise be ? PromiseResolve(C, result).
     Value promise = PromiseObject::promiseResolve(state, C.asObject(), result);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let thrower be equivalent to a function that throws reason.
     ExtendedNativeFunctionObject* valueThunk = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(), ValueThunkThrower, 0, NativeFunctionInfo::Strict));
@@ -608,6 +624,7 @@ Value PromiseObject::promiseAnyRejectElementFunction(ExecutionState& state, Valu
         error->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, String::fromASCII("errors")),
                                                 ObjectPropertyDescriptor(Object::createArrayFromList(state, *errors),
                                                                          (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return ? Call(promiseCapability.[[Reject]], undefined, « error »).
         Value argv = error;
         return Object::call(state, F->internalSlot(BuiltinFunctionSlot::Reject), Value(), 1, &argv);

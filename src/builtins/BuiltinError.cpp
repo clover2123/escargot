@@ -58,10 +58,12 @@ static Value builtinErrorConstructor(ExecutionState& state, Value thisValue, siz
     if (!message.isUndefined()) {
         obj->defineOwnPropertyThrowsException(state, state.context()->staticStrings().message,
                                               ObjectPropertyDescriptor(message.toString(state), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent)));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     Value options = argc > 1 ? argv[1] : Value();
     installErrorCause(state, obj, options);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (UNLIKELY(state.context()->vmInstance()->isErrorCreationCallbackRegistered())) {
         state.context()->vmInstance()->triggerErrorCreationCallback(state, obj);
@@ -84,9 +86,11 @@ static Value builtinErrorConstructor(ExecutionState& state, Value thisValue, siz
         if (!message.isUndefined()) {                                                                                                                                                                                                                   \
             obj->defineOwnPropertyThrowsException(state, state.context()->staticStrings().message,                                                                                                                                                      \
                                                   ObjectPropertyDescriptor(message.toString(state), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent))); \
+            RETURN_VALUE_IF_PENDING_EXCEPTION                                                                                                                                                                                                           \
         }                                                                                                                                                                                                                                               \
         Value options = argc > 1 ? argv[1] : Value();                                                                                                                                                                                                   \
         installErrorCause(state, obj, options);                                                                                                                                                                                                         \
+        RETURN_VALUE_IF_PENDING_EXCEPTION                                                                                                                                                                                                               \
         if (UNLIKELY(state.context()->vmInstance()->isErrorCreationCallbackRegistered())) {                                                                                                                                                             \
             state.context()->vmInstance()->triggerErrorCreationCallback(state, obj);                                                                                                                                                                    \
         }                                                                                                                                                                                                                                               \
@@ -119,17 +123,20 @@ static Value builtinAggregateErrorConstructor(ExecutionState& state, Value thisV
         // Perform ! DefinePropertyOrThrow(O, "message", msgDesc).
         O->defineOwnPropertyThrowsException(state, state.context()->staticStrings().message,
                                             ObjectPropertyDescriptor(message.toString(state), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent)));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     // Perform ? InstallErrorCause(O, options).
     Value options = argc > 2 ? argv[2] : Value();
     installErrorCause(state, O, options);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let errorsList be ? IterableToList(errors).
     auto errorsList = IteratorObject::iterableToList(state, argv[0]);
     // Perform ! DefinePropertyOrThrow(O, "errors", PropertyDescriptor { [[Configurable]]: true, [[Enumerable]]: false, [[Writable]]: true, [[Value]]: ! CreateArrayFromList(errorsList) }).
     O->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, String::fromASCII("errors")),
                                         ObjectPropertyDescriptor(Value(Object::createArrayFromList(state, errorsList.size(), errorsList.data())), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent)));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (UNLIKELY(state.context()->vmInstance()->isErrorCreationCallbackRegistered())) {
         state.context()->vmInstance()->triggerErrorCreationCallback(state, O);
@@ -141,14 +148,14 @@ static Value builtinAggregateErrorConstructor(ExecutionState& state, Value thisV
 
 static Value builtinErrorThrowTypeError(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
-    ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "");
+    THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "");
     return Value();
 }
 
 static Value builtinErrorToString(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!thisValue.isObject())
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Error.string(), true, state.context()->staticStrings().toString.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Error.string(), true, state.context()->staticStrings().toString.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
 
     Object* o = thisValue.toObject(state);
 

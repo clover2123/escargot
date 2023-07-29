@@ -3086,7 +3086,7 @@ void ExecutionStateRef::throwException(ValueRef* value)
 void ExecutionStateRef::checkStackOverflow()
 {
     ExecutionState& imp = *toImpl(this);
-    CHECK_STACK_OVERFLOW(imp);
+    // CHECK_STACK_OVERFLOW(imp);
 }
 
 GCManagedVector<Evaluator::StackTraceData> ExecutionStateRef::computeStackTrace()

@@ -66,6 +66,7 @@ static Value asyncFromSyncIteratorContinuation(ExecutionState& state, Object* re
         // IfAbruptRejectPromise(done, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
     // Let value be IteratorValue(result).
@@ -76,17 +77,20 @@ static Value asyncFromSyncIteratorContinuation(ExecutionState& state, Object* re
         // IfAbruptRejectPromise(value, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
     // Let valueWrapper be ? PromiseResolve(%Promise%, « value »).
     PromiseObject* valueWrapper = nullptr;
     try {
         valueWrapper = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), value)->asPromiseObject();
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // * added step from 2020 (esid: language/statements/for-await-of/async-from-sync-iterator-continuation-abrupt-completion-get-constructor.js)
         // IfAbruptRejectPromise(valueWrapper, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
 
@@ -107,12 +111,14 @@ static Value builtinAsyncFromSyncIteratorNext(ExecutionState& state, Value thisV
     Value& O = thisValue;
     // Let promiseCapability be ! NewPromiseCapability(%Promise%).
     auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // If Type(O) is not Object, or if O does not have a [[SyncIteratorRecord]] internal slot, then
     if (!O.isObject() || !O.asObject()->isAsyncFromSyncIteratorObject()) {
         // Let invalidIteratorError be a newly created TypeError object.
         Value invalidIteratorError = ErrorObject::createError(state, ErrorCode::TypeError, String::fromASCII("given this value is not Async-from-Sync Iterator"));
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « invalidIteratorError »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &invalidIteratorError);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -126,10 +132,12 @@ static Value builtinAsyncFromSyncIteratorNext(ExecutionState& state, Value thisV
         // Else,
         //   a. Let result be IteratorNext(syncIteratorRecord).
         result = IteratorObject::iteratorNext(state, syncIteratorRecord, argc ? argv[0] : Value(Value::EmptyValue));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // IfAbruptRejectPromise(result, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
     // Return ! AsyncFromSyncIteratorContinuation(result, promiseCapability).
@@ -144,12 +152,14 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
     Value& O = thisValue;
     // Let promiseCapability be ! NewPromiseCapability(%Promise%).
     auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // If Type(O) is not Object, or if O does not have a [[SyncIteratorRecord]] internal slot, then
     if (!O.isObject() || !O.asObject()->isAsyncFromSyncIteratorObject()) {
         // Let invalidIteratorError be a newly created TypeError object.
         Value invalidIteratorError = ErrorObject::createError(state, ErrorCode::TypeError, String::fromASCII("given this value is not Async-from-Sync Iterator"));
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « invalidIteratorError »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &invalidIteratorError);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -159,10 +169,12 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
     Value returnVariable;
     try {
         returnVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringReturn);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // IfAbruptRejectPromise(return, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
 
@@ -172,6 +184,7 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
         Value iterResult = IteratorObject::createIterResultObject(state, value, true);
         // Perform ! Call(promiseCapability.[[Resolve]], undefined, « iterResult »).
         Object::call(state, promiseCapability.m_resolveFunction, Value(), 1, &iterResult);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -187,10 +200,12 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
         } else {
             result = Object::call(state, returnVariable, syncIterator, 0, nullptr);
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // IfAbruptRejectPromise(return, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
 
@@ -199,6 +214,7 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « a newly created TypeError object »).
         Value typeError = ErrorObject::createError(state, ErrorCode::TypeError, String::fromASCII("result of iterator is not Object"));
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &typeError);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -214,12 +230,14 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     Value& O = thisValue;
     // Let promiseCapability be ! NewPromiseCapability(%Promise%).
     auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    ASSERT(!state.hasPendingException());
     // If Type(O) is not Object, or if O does not have a [[SyncIteratorRecord]] internal slot, then
     if (!O.isObject() || !O.asObject()->isAsyncFromSyncIteratorObject()) {
         // Let invalidIteratorError be a newly created TypeError object.
         Value invalidIteratorError = ErrorObject::createError(state, ErrorCode::TypeError, String::fromASCII("given this value is not Async-from-Sync Iterator"));
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « invalidIteratorError »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &invalidIteratorError);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -230,10 +248,12 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     Value throwVariable;
     try {
         throwVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringThrow);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // IfAbruptRejectPromise(return, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
 
@@ -241,6 +261,7 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     if (throwVariable.isUndefined()) {
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « value »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &value);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -249,10 +270,12 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     Value result;
     try {
         result = Object::call(state, throwVariable, syncIterator, 1, &value);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& thrownValue) {
         // IfAbruptRejectPromise(result, promiseCapability).
         Value argv = thrownValue;
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
 
@@ -261,6 +284,7 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
         // Perform ! Call(promiseCapability.[[Reject]], undefined, « a newly created TypeError object »).
         Value typeError = ErrorObject::createError(state, ErrorCode::TypeError, String::fromASCII("result of iterator is not Object"));
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &typeError);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return promiseCapability.[[Promise]].
         return promiseCapability.m_promise;
     }

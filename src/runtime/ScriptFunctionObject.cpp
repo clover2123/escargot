@@ -132,6 +132,9 @@ public:
     {
         // Let result be OrdinaryCallEvaluateBody(F, argumentsList).
         const Value& result = interpreterReturnValue;
+        if (UNLIKELY(result.isException())) {
+            return result;
+        }
         // If result.[[type]] is return, then
         // If Type(result.[[value]]) is Object, return NormalCompletion(result.[[value]]).
         if (result.isObject()) {
@@ -184,9 +187,11 @@ void ScriptFunctionObject::generateArgumentsObject(ExecutionState& state, size_t
         auto result = environmentRecordWillArgumentsObjectBeLocatedIn->hasBinding(state, arguments);
         if (UNLIKELY(result.m_index == SIZE_MAX)) {
             environmentRecordWillArgumentsObjectBeLocatedIn->createBinding(state, arguments, false, true);
+            ASSERT(!state.hasPendingException());
             result = environmentRecordWillArgumentsObjectBeLocatedIn->hasBinding(state, arguments);
         }
         environmentRecordWillArgumentsObjectBeLocatedIn->initializeBinding(state, arguments, newArgumentsObject);
+        ASSERT(!state.hasPendingException());
     } else {
         const InterpretedCodeBlock::IdentifierInfoVector& v = interpretedCodeBlock()->identifierInfos();
         for (size_t i = 0; i < v.size(); i++) {
@@ -195,6 +200,7 @@ void ScriptFunctionObject::generateArgumentsObject(ExecutionState& state, size_t
                     stackStorage[v[i].m_indexForIndexedStorage] = newArgumentsObject;
                 } else {
                     environmentRecordWillArgumentsObjectBeLocatedIn->setHeapValueByIndex(state, v[i].m_indexForIndexedStorage, newArgumentsObject);
+                    ASSERT(!state.hasPendingException());
                 }
                 break;
             }

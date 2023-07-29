@@ -51,6 +51,14 @@
 #include "parser/ScriptParser.h"
 #include "CheckedArithmetic.h"
 
+#define INT_RETURN_FOR_EXCEPTION \
+    return;
+
+#define INT_RETURN_VALUE_IF_PENDING_EXCEPTION     \
+    if (UNLIKELY(state->hasPendingException())) { \
+        return Value(Value::Exception);           \
+    }
+
 #if defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER) && !defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER_INIT_WITH_NULL)
 extern char FillOpcodeTableAsmLbl[];
 const void* FillOpcodeTableAddress[] = { &FillOpcodeTableAsmLbl[0] };
@@ -185,11 +193,6 @@ public:
 
     static int evaluateImportAssertionOperation(ExecutionState& state, const Value& options);
 
-#if defined(ENABLE_TCO)
-    static Value tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& callee, Value* registerFile);
-    static Value tailRecursionWithReceiverSlowCase(ExecutionState& state, TailRecursionWithReceiver* code, const Value& callee, const Value& receiver, Value* registerFile);
-#endif
-
 private:
     static bool abstractLeftIsLessThanRightSlowCase(ExecutionState& state, const Value& left, const Value& right, bool switched);
     static bool abstractLeftIsLessThanEqualRightSlowCase(ExecutionState& state, const Value& left, const Value& right, bool switched);
@@ -214,7 +217,9 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
 
 #define DEFINE_OPCODE(codeName) codeName##OpcodeLbl
 #define DEFINE_DEFAULT
-#define NEXT_INSTRUCTION() goto NextInstruction;
+#define NEXT_INSTRUCTION()                 \
+    ASSERT(!state->hasPendingException()); \
+    goto NextInstruction;
 #define JUMP_INSTRUCTION(opcode) \
     goto opcode##OpcodeLbl;
 
@@ -228,7 +233,8 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
     default:                          \
         RELEASE_ASSERT_NOT_REACHED(); \
         }
-#define NEXT_INSTRUCTION() \
+#define NEXT_INSTRUCTION()                 \
+    ASSERT(!state->hasPendingException()); \
     goto NextInstruction;
 #define JUMP_INSTRUCTION(opcode)    \
     currentOpcode = opcode##Opcode; \
@@ -282,13 +288,14 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     const EncodedValueVectorElement& val = ctx->globalDeclarativeStorage()->at(idx);
                     isCacheWork = true;
                     if (UNLIKELY(val.isEmpty())) {
-                        ErrorObject::throwBuiltinError(*state, ErrorCode::ReferenceError, ctx->globalDeclarativeRecord()->at(idx).m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, ctx->globalDeclarativeRecord()->at(idx).m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
                     }
                     registerFile[code->m_registerIndex] = val;
                 }
             }
             if (UNLIKELY(!isCacheWork)) {
                 registerFile[code->m_registerIndex] = InterpreterSlowPath::getGlobalVariableSlowCase(*state, globalObject, slot, byteCodeBlock);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             }
             ADD_PROGRAM_COUNTER(GetGlobalVariable);
             NEXT_INSTRUCTION();
@@ -316,10 +323,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     const auto& record = ctx->globalDeclarativeRecord()->at(idx);
                     auto& storage = ctx->globalDeclarativeStorage()->at(idx);
                     if (UNLIKELY(storage.isEmpty())) {
-                        ErrorObject::throwBuiltinError(*state, ErrorCode::ReferenceError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
                     }
                     if (UNLIKELY(!record.m_isMutable)) {
-                        ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::AssignmentToConstantVariable);
+                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::AssignmentToConstantVariable);
                     }
                     storage = registerFile[code->m_registerIndex];
                 }
@@ -327,6 +334,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
 
             if (UNLIKELY(!isCacheWork)) {
                 InterpreterSlowPath::setGlobalVariableSlowCase(*state, globalObject, slot, registerFile[code->m_registerIndex], byteCodeBlock);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             }
 
             ADD_PROGRAM_COUNTER(SetGlobalVariable);
@@ -355,6 +363,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ret = Value(Value::EncodeAsDouble, v0.asNumber() + v1.asNumber());
             } else {
                 ret = InterpreterSlowPath::plusSlowCase(*state, v0, v1);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryPlus);
             NEXT_INSTRUCTION();
@@ -382,6 +391,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ret = Value(Value::EncodeAsDouble, left.asNumber() - right.asNumber());
             } else {
                 ret = InterpreterSlowPath::minusSlowCase(*state, left, right);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryMinus);
             NEXT_INSTRUCTION();
@@ -413,6 +423,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ret = Value(Value::EncodeAsDouble, left.asNumber() * right.asNumber());
             } else {
                 ret = InterpreterSlowPath::multiplySlowCase(*state, left, right);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryMultiply);
             NEXT_INSTRUCTION();
@@ -430,6 +441,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ret = Value(Value::EncodeAsDouble, left.asNumber() / right.asNumber());
             } else {
                 ret = InterpreterSlowPath::divisionSlowCase(*state, left, right);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryDivision);
             NEXT_INSTRUCTION();
@@ -464,6 +476,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_srcIndex0];
             const Value& right = registerFile[code->m_srcIndex1];
             registerFile[code->m_dstIndex] = Value(InterpreterSlowPath::abstractLeftIsLessThanRight(*state, left, right, false));
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(BinaryLessThan);
             NEXT_INSTRUCTION();
         }
@@ -475,6 +488,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_srcIndex0];
             const Value& right = registerFile[code->m_srcIndex1];
             registerFile[code->m_dstIndex] = Value(InterpreterSlowPath::abstractLeftIsLessThanEqualRight(*state, left, right, false));
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(BinaryLessThanOrEqual);
             NEXT_INSTRUCTION();
         }
@@ -486,6 +500,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_srcIndex0];
             const Value& right = registerFile[code->m_srcIndex1];
             registerFile[code->m_dstIndex] = Value(InterpreterSlowPath::abstractLeftIsLessThanRight(*state, right, left, true));
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(BinaryGreaterThan);
             NEXT_INSTRUCTION();
         }
@@ -507,6 +522,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ToNumericIncrement* code = (ToNumericIncrement*)programCounter;
             registerFile[code->m_dstIndex] = Value(registerFile[code->m_srcIndex].toNumeric(*state).first);
             registerFile[code->m_storeIndex] = InterpreterSlowPath::incrementOperation(*state, registerFile[code->m_dstIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ToNumericIncrement);
             NEXT_INSTRUCTION();
         }
@@ -516,6 +532,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             Increment* code = (Increment*)programCounter;
             registerFile[code->m_dstIndex] = InterpreterSlowPath::incrementOperation(*state, registerFile[code->m_srcIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(Increment);
             NEXT_INSTRUCTION();
         }
@@ -526,6 +543,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ToNumericDecrement* code = (ToNumericDecrement*)programCounter;
             registerFile[code->m_dstIndex] = Value(registerFile[code->m_srcIndex].toNumeric(*state).first);
             registerFile[code->m_storeIndex] = InterpreterSlowPath::decrementOperation(*state, registerFile[code->m_dstIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ToNumericDecrement);
             NEXT_INSTRUCTION();
         }
@@ -535,6 +553,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             Decrement* code = (Decrement*)programCounter;
             registerFile[code->m_dstIndex] = InterpreterSlowPath::decrementOperation(*state, registerFile[code->m_srcIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(Decrement);
             NEXT_INSTRUCTION();
         }
@@ -639,6 +658,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             SetObjectPreComputedCase* code = (SetObjectPreComputedCase*)programCounter;
             InterpreterSlowPath::setObjectPreComputedCaseOperation(*state, registerFile[code->m_objectRegisterIndex], registerFile[code->m_loadRegisterIndex], code, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(SetObjectPreComputedCase);
             NEXT_INSTRUCTION();
         }
@@ -660,6 +680,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_leftIndex];
             const Value& right = registerFile[code->m_rightIndex];
             bool result = code->m_containEqual ? InterpreterSlowPath::abstractLeftIsLessThanEqualRight(*state, left, right, code->m_switched) : InterpreterSlowPath::abstractLeftIsLessThanRight(*state, left, right, code->m_switched);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Jump if the condition is NOT fulfilled
             if (result) {
@@ -738,7 +759,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
             if (UNLIKELY(!callee.isPointerValue())) {
-                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
 
             // Return F.[[Call]](V, argumentsList).
@@ -759,7 +780,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
             if (UNLIKELY(!callee.isPointerValue())) {
-                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
 
             // Return F.[[Call]](V, argumentsList).
@@ -778,6 +799,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 upperEnv = upperEnv->outerEnvironment();
             }
             registerFile[code->m_registerIndex] = upperEnv->record()->asDeclarativeEnvironmentRecord()->getHeapValueByIndex(*state, code->m_index);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(LoadByHeapIndex);
             NEXT_INSTRUCTION();
         }
@@ -791,6 +813,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 upperEnv = upperEnv->outerEnvironment();
             }
             upperEnv->record()->setMutableBindingByIndex(*state, code->m_index, registerFile[code->m_registerIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(StoreByHeapIndex);
             NEXT_INSTRUCTION();
         }
@@ -805,6 +828,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             } else {
                 registerFile[code->m_dstIndex] = Value(Value::DoubleToIntConvertibleTestNeeds, -val.toNumber(*state));
             }
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(UnaryMinus);
             NEXT_INSTRUCTION();
         }
@@ -816,6 +840,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_srcIndex0];
             const Value& right = registerFile[code->m_srcIndex1];
             registerFile[code->m_dstIndex] = InterpreterSlowPath::modOperation(*state, left, right);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(BinaryMod);
             NEXT_INSTRUCTION();
         }
@@ -830,6 +855,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(left.asInt32() & right.asInt32());
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::bitwiseOperationSlowCase(*state, left, right, BitwiseOperationKind::And);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryBitwiseAnd);
             NEXT_INSTRUCTION();
@@ -845,6 +871,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(left.asInt32() | right.asInt32());
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::bitwiseOperationSlowCase(*state, left, right, BitwiseOperationKind::Or);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryBitwiseOr);
             NEXT_INSTRUCTION();
@@ -860,6 +887,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(left.asInt32() ^ right.asInt32());
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::bitwiseOperationSlowCase(*state, left, right, BitwiseOperationKind::Xor);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryBitwiseXor);
             NEXT_INSTRUCTION();
@@ -878,6 +906,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(lnum);
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::shiftOperationSlowCase(*state, left, right, ShiftOperationKind::Left);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryLeftShift);
             NEXT_INSTRUCTION();
@@ -896,6 +925,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(lnum);
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::shiftOperationSlowCase(*state, left, right, ShiftOperationKind::SignedRight);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinarySignedRightShift);
             NEXT_INSTRUCTION();
@@ -914,6 +944,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(lnum);
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::shiftOperationSlowCase(*state, left, right, ShiftOperationKind::UnsignedRight);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             }
             ADD_PROGRAM_COUNTER(BinaryUnsignedRightShift);
             NEXT_INSTRUCTION();
@@ -926,6 +957,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& left = registerFile[code->m_srcIndex0];
             const Value& right = registerFile[code->m_srcIndex1];
             registerFile[code->m_dstIndex] = InterpreterSlowPath::exponentialOperation(*state, left, right);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(BinaryExponentiation);
             NEXT_INSTRUCTION();
         }
@@ -939,6 +971,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 registerFile[code->m_dstIndex] = Value(~val.asInt32());
             } else {
                 registerFile[code->m_dstIndex] = InterpreterSlowPath::bitwiseNotOperationSlowCase(*state, val);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             }
             ADD_PROGRAM_COUNTER(UnaryBitwiseNot);
             NEXT_INSTRUCTION();
@@ -1038,6 +1071,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ArrayDefineOwnPropertyBySpreadElementOperation* code = (ArrayDefineOwnPropertyBySpreadElementOperation*)programCounter;
             InterpreterSlowPath::arrayDefineOwnPropertyBySpreadElementOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ArrayDefineOwnPropertyBySpreadElementOperation);
             NEXT_INSTRUCTION();
         }
@@ -1047,6 +1081,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             CreateSpreadArrayObject* code = (CreateSpreadArrayObject*)programCounter;
             InterpreterSlowPath::createSpreadArrayObject(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(CreateSpreadArrayObject);
             NEXT_INSTRUCTION();
         }
@@ -1056,6 +1091,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             NewOperation* code = (NewOperation*)programCounter;
             registerFile[code->m_resultIndex] = InterpreterSlowPath::constructOperation(*state, registerFile[code->m_calleeIndex], code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(NewOperation);
             NEXT_INSTRUCTION();
         }
@@ -1068,43 +1104,6 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ADD_PROGRAM_COUNTER(UnaryTypeof);
             NEXT_INSTRUCTION();
         }
-
-#if defined(ENABLE_TCO)
-        // return the result of call directly for tail call
-        DEFINE_OPCODE(CallReturn)
-            :
-        {
-            CallReturn* code = (CallReturn*)programCounter;
-            const Value& callee = registerFile[code->m_calleeIndex];
-
-            // if PointerValue is not callable, PointerValue::call function throws builtin error
-            // https://www.ecma-international.org/ecma-262/6.0/#sec-call
-            // If IsCallable(F) is false, throw a TypeError exception.
-            if (UNLIKELY(!callee.isPointerValue())) {
-                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
-            }
-
-            return callee.asPointerValue()->call(*state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
-        }
-
-        // return the result of call directly for tail call
-        DEFINE_OPCODE(CallReturnWithReceiver)
-            :
-        {
-            CallReturnWithReceiver* code = (CallReturnWithReceiver*)programCounter;
-            const Value& callee = registerFile[code->m_calleeIndex];
-            const Value& receiver = registerFile[code->m_receiverIndex];
-
-            // if PointerValue is not callable, PointerValue::call function throws builtin error
-            // https://www.ecma-international.org/ecma-262/6.0/#sec-call
-            // If IsCallable(F) is false, throw a TypeError exception.
-            if (UNLIKELY(!callee.isPointerValue())) {
-                ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
-            }
-
-            return callee.asPointerValue()->call(*state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
-        }
-#endif
 
         DEFINE_OPCODE(GetObjectOpcodeSlowCase)
             :
@@ -1120,6 +1119,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             SetObjectOperation* code = (SetObjectOperation*)programCounter;
             InterpreterSlowPath::setObjectOpcodeSlowCase(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(SetObjectOperation);
             NEXT_INSTRUCTION();
         }
@@ -1129,6 +1129,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             LoadByName* code = (LoadByName*)programCounter;
             registerFile[code->m_registerIndex] = InterpreterSlowPath::loadByName(*state, state->lexicalEnvironment(), code->m_name);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(LoadByName);
             NEXT_INSTRUCTION();
         }
@@ -1138,6 +1139,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             StoreByName* code = (StoreByName*)programCounter;
             InterpreterSlowPath::storeByName(*state, state->lexicalEnvironment(), code->m_name, registerFile[code->m_registerIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(StoreByName);
             NEXT_INSTRUCTION();
         }
@@ -1147,6 +1149,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             InitializeByName* code = (InitializeByName*)programCounter;
             InterpreterSlowPath::initializeByName(*state, state->lexicalEnvironment(), code->m_name, code->m_isLexicallyDeclaredName, registerFile[code->m_registerIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(InitializeByName);
             NEXT_INSTRUCTION();
         }
@@ -1186,6 +1189,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             InitializeClass* code = (InitializeClass*)programCounter;
             InterpreterSlowPath::initializeClassOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(InitializeClass);
             NEXT_INSTRUCTION();
         }
@@ -1195,6 +1199,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             SuperReference* code = (SuperReference*)programCounter;
             InterpreterSlowPath::superOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(SuperReference);
             NEXT_INSTRUCTION();
         }
@@ -1204,6 +1209,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ComplexSetObjectOperation* code = (ComplexSetObjectOperation*)programCounter;
             InterpreterSlowPath::complexSetObjectOperation(*state, code, registerFile, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ComplexSetObjectOperation);
             NEXT_INSTRUCTION();
         }
@@ -1213,6 +1219,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ComplexGetObjectOperation* code = (ComplexGetObjectOperation*)programCounter;
             InterpreterSlowPath::complexGetObjectOperation(*state, code, registerFile, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ComplexGetObjectOperation);
             NEXT_INSTRUCTION();
         }
@@ -1233,6 +1240,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             EnvironmentRecord* envRec = state->getThisEnvironment();
             ASSERT(envRec->isDeclarativeEnvironmentRecord() && envRec->asDeclarativeEnvironmentRecord()->isFunctionEnvironmentRecord());
             registerFile[code->m_dstIndex] = envRec->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->getThisBinding(*state);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(LoadThisBinding);
             NEXT_INSTRUCTION();
         }
@@ -1258,7 +1266,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             ThrowOperation* code = (ThrowOperation*)programCounter;
-            state->context()->throwException(*state, registerFile[code->m_registerIndex]);
+            THROW_EXCEPTION_RETURN_VALUE((*state), registerFile[code->m_registerIndex]);
         }
 
         DEFINE_OPCODE(OpenLexicalEnvironment)
@@ -1321,6 +1329,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             IteratorOperation* code = (IteratorOperation*)programCounter;
             InterpreterSlowPath::iteratorOperation(*state, programCounter, registerFile, byteCodeBlock->m_code.data());
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             NEXT_INSTRUCTION();
         }
 
@@ -1329,6 +1338,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             GetMethod* code = (GetMethod*)programCounter;
             InterpreterSlowPath::getMethodOperation(*state, programCounter, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(GetMethod);
             NEXT_INSTRUCTION();
         }
@@ -1338,6 +1348,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             LoadRegExp* code = (LoadRegExp*)programCounter;
             registerFile[code->m_registerIndex] = new RegExpObject(*state, code->m_body, code->m_option);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(LoadRegExp);
             NEXT_INSTRUCTION();
         }
@@ -1347,6 +1358,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             UnaryDelete* code = (UnaryDelete*)programCounter;
             InterpreterSlowPath::deleteOperation(*state, state->lexicalEnvironment(), code, registerFile, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(UnaryDelete);
             NEXT_INSTRUCTION();
         }
@@ -1365,6 +1377,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             BinaryInOperation* code = (BinaryInOperation*)programCounter;
             InterpreterSlowPath::binaryInOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(BinaryInOperation);
             NEXT_INSTRUCTION();
         }
@@ -1374,6 +1387,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             BinaryInstanceOfOperation* code = (BinaryInstanceOfOperation*)programCounter;
             InterpreterSlowPath::instanceOfOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(BinaryInstanceOfOperation);
             NEXT_INSTRUCTION();
         }
@@ -1392,6 +1406,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ObjectDefineGetterSetter* code = (ObjectDefineGetterSetter*)programCounter;
             InterpreterSlowPath::defineObjectGetterSetter(*state, code, byteCodeBlock, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ObjectDefineGetterSetter);
             NEXT_INSTRUCTION();
         }
@@ -1411,6 +1426,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             CallComplexCase* code = (CallComplexCase*)programCounter;
             InterpreterSlowPath::callFunctionComplexCase(*state, code, registerFile, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(CallComplexCase);
             NEXT_INSTRUCTION();
         }
@@ -1419,7 +1435,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             ThrowStaticErrorOperation* code = (ThrowStaticErrorOperation*)programCounter;
-            ErrorObject::throwBuiltinError(*state, (ErrorCode)code->m_errorKind, code->m_errorMessage, code->m_templateDataString);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(*state, (ErrorCode)code->m_errorKind, code->m_errorMessage, code->m_templateDataString);
         }
 
         DEFINE_OPCODE(NewOperationWithSpreadElement)
@@ -1432,6 +1448,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ValueVector spreadArgs;
                 InterpreterSlowPath::spreadFunctionArguments(*state, &registerFile[code->m_argumentsStartIndex], code->m_argumentCount, spreadArgs);
                 registerFile[code->m_resultIndex] = InterpreterSlowPath::constructOperation(*state, registerFile[code->m_calleeIndex], spreadArgs.size(), spreadArgs.data());
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             }
 
             ADD_PROGRAM_COUNTER(NewOperationWithSpreadElement);
@@ -1453,6 +1470,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 enumObj->fillRestElement(*state, result);
             } else {
                 result = InterpreterSlowPath::restBindOperation(*state, iterOrEnum.asPointerValue()->asIteratorRecord());
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             }
 
             registerFile[code->m_dstIndex] = result;
@@ -1464,6 +1482,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             Value v = InterpreterSlowPath::executionResumeOperation(state, programCounter, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             if (!v.isEmpty()) {
                 return v;
             }
@@ -1483,6 +1502,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             BlockOperation* code = (BlockOperation*)programCounter;
             Value v = InterpreterSlowPath::blockOperation(state, code, programCounter, byteCodeBlock, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             if (!v.isEmpty()) {
                 return v;
             }
@@ -1493,6 +1513,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             InterpreterSlowPath::replaceBlockLexicalEnvironmentOperation(*state, programCounter, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ReplaceBlockLexicalEnvironmentOperation);
             NEXT_INSTRUCTION();
         }
@@ -1526,102 +1547,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             StoreByNameWithAddress* code = (StoreByNameWithAddress*)programCounter;
             InterpreterSlowPath::storeByNameWithAddress(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION;
             ADD_PROGRAM_COUNTER(StoreByNameWithAddress);
             NEXT_INSTRUCTION();
         }
-
-#if defined(ENABLE_TCO)
-        // TCO : tail recursion case
-        DEFINE_OPCODE(TailRecursion)
-            :
-        {
-            TailRecursion* code = (TailRecursion*)programCounter;
-            const Value& callee = registerFile[code->m_calleeIndex];
-
-            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->m_argc != code->m_argumentCount))) {
-                // goto slow path
-                return InterpreterSlowPath::tailRecursionSlowCase(*state, code, callee, registerFile);
-            }
-
-            // fast tail recursion
-            ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
-            ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
-            ASSERT(state->m_argc == code->m_argumentCount);
-
-            if (code->m_argumentCount) {
-                // At the start of tail call, we need to allocate a buffer for arguments
-                // because recursive tail call reuses this buffer
-                if (UNLIKELY(!state->initTCO())) {
-                    Value* newArgs = ALLOCA(sizeof(Value) * code->m_argumentCount, Value);
-                    state->setTCOArguments(newArgs);
-                }
-
-                // its safe to overwrite arguments because old arguments are no longer necessary
-                for (size_t i = 0; i < state->m_argc; i++) {
-                    state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
-                }
-            }
-
-            // set this value
-            registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->inStrictMode() ? Value() : state->context()->globalObjectProxy();
-
-            // set programCounter
-            programCounter = reinterpret_cast<size_t>(byteCodeBlock->m_code.data());
-            state->m_programCounter = &programCounter;
-
-            NEXT_INSTRUCTION();
-        }
-
-        // TCO : tail recursion case with receiver
-        DEFINE_OPCODE(TailRecursionWithReceiver)
-            :
-        {
-            TailRecursionWithReceiver* code = (TailRecursionWithReceiver*)programCounter;
-            const Value& callee = registerFile[code->m_calleeIndex];
-            const Value& receiver = registerFile[code->m_receiverIndex];
-
-            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->m_argc != code->m_argumentCount))) {
-                // goto slow path
-                return InterpreterSlowPath::tailRecursionWithReceiverSlowCase(*state, code, callee, receiver, registerFile);
-            }
-
-            // fast tail recursion with receiver
-            ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
-            ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
-            ASSERT(state->m_argc == code->m_argumentCount);
-
-            if (code->m_argumentCount) {
-                // At the start of tail call, we need to allocate a buffer for arguments
-                // because recursive tail call reuses this buffer
-                if (UNLIKELY(!state->initTCO())) {
-                    Value* newArgs = ALLOCA(sizeof(Value) * code->m_argumentCount, Value);
-                    state->setTCOArguments(newArgs);
-                }
-
-                // its safe to overwrite arguments because old arguments are no longer necessary
-                for (size_t i = 0; i < state->m_argc; i++) {
-                    state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
-                }
-            }
-
-            // set this value (receiver) // FIXME
-            if (state->inStrictMode()) {
-                registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver;
-            } else {
-                if (receiver.isUndefinedOrNull()) {
-                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->context()->globalObjectProxy();
-                } else {
-                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver.toObject(*state);
-                }
-            }
-
-            // set programCounter
-            programCounter = reinterpret_cast<size_t>(byteCodeBlock->m_code.data());
-            state->m_programCounter = &programCounter;
-
-            NEXT_INSTRUCTION();
-        }
-#endif
 
 #ifdef ESCARGOT_DEBUGGER
         DEFINE_OPCODE(BreakpointDisabled)
@@ -1682,10 +1611,35 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
     return Value();
 }
 
+
+// Redefine macro for slow path
+#undef INT_RETURN_VALUE_IF_PENDING_EXCEPTION
+
+#define INT_RETURN_IF_PENDING_EXCEPTION          \
+    if (UNLIKELY(state.hasPendingException())) { \
+        return;                                  \
+    }
+
+#define INT_RETURN_VALUE_IF_PENDING_EXCEPTION    \
+    if (UNLIKELY(state.hasPendingException())) { \
+        return Value(Value::Exception);          \
+    }
+
+#define INT_RETURN_NULL_IF_PENDING_EXCEPTION     \
+    if (UNLIKELY(state.hasPendingException())) { \
+        return nullptr;                          \
+    }
+
+#define INT_RETURN_ZERO_IF_PENDING_EXCEPTION     \
+    if (UNLIKELY(state.hasPendingException())) { \
+        return 0;                                \
+    }
+
 NEVER_INLINE EnvironmentRecord* InterpreterSlowPath::getBindedEnvironmentRecordByName(ExecutionState& state, LexicalEnvironment* env, const AtomicString& name, Value& bindedValue)
 {
     while (env) {
         EnvironmentRecord::GetBindingValueResult result = env->record()->getBindingValue(state, name);
+        INT_RETURN_NULL_IF_PENDING_EXCEPTION
         if (result.m_hasBindingValue) {
             bindedValue = result.m_value;
             return env->record();
@@ -1693,14 +1647,14 @@ NEVER_INLINE EnvironmentRecord* InterpreterSlowPath::getBindedEnvironmentRecordB
         env = env->outerEnvironment();
     }
 
-    ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
-    return NULL;
+    THROW_BUILTIN_ERROR_RETURN_NULL(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
 }
 
 NEVER_INLINE Value InterpreterSlowPath::loadByName(ExecutionState& state, LexicalEnvironment* env, const AtomicString& name, bool throwException)
 {
     while (env) {
         EnvironmentRecord::GetBindingValueResult result = env->record()->getBindingValue(state, name);
+        INT_RETURN_NULL_IF_PENDING_EXCEPTION
         if (result.m_hasBindingValue) {
             return result.m_value;
         }
@@ -1713,8 +1667,9 @@ NEVER_INLINE Value InterpreterSlowPath::loadByName(ExecutionState& state, Lexica
             return virtialIdResult;
     }
 
-    if (throwException)
-        ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+    if (throwException) {
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+    }
 
     return Value();
 }
@@ -1725,12 +1680,13 @@ NEVER_INLINE void InterpreterSlowPath::storeByName(ExecutionState& state, Lexica
         auto result = env->record()->hasBinding(state, name);
         if (result.m_index != SIZE_MAX) {
             env->record()->setMutableBindingByBindingSlot(state, result, name, value);
+            INT_RETURN_IF_PENDING_EXCEPTION
             return;
         }
         env = env->outerEnvironment();
     }
     if (state.inStrictMode()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
     }
     GlobalObject* o = state.context()->globalObject();
     o->setThrowsExceptionWhenStrictMode(state, name, value, o);
@@ -1751,7 +1707,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeByName(ExecutionState& state, L
             }
             env = env->outerEnvironment();
         }
-        ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
     }
 }
 
@@ -1797,9 +1753,10 @@ NEVER_INLINE void InterpreterSlowPath::storeByNameWithAddress(ExecutionState& st
             if (idx == count) {
                 EnvironmentRecord::BindingSlot slot = env->record()->hasBinding(state, code->m_name);
                 if (slot.m_index == SIZE_MAX && state.inStrictMode()) {
-                    ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, code->m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+                    THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, code->m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
                 }
                 env->record()->setMutableBindingByBindingSlot(state, slot, code->m_name, value);
+                INT_RETURN_IF_PENDING_EXCEPTION
                 return;
             }
             idx++;
@@ -1807,7 +1764,7 @@ NEVER_INLINE void InterpreterSlowPath::storeByNameWithAddress(ExecutionState& st
         }
     }
     if (state.inStrictMode()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, code->m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, code->m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
     }
     GlobalObject* o = state.context()->globalObject();
     o->setThrowsExceptionWhenStrictMode(state, code->m_name, value, o);
@@ -1828,6 +1785,7 @@ NEVER_INLINE Value InterpreterSlowPath::plusSlowCase(ExecutionState& state, cons
     // Let rprim be ? ToPrimitive(rval).
     lval = left.toPrimitive(state);
     rval = right.toPrimitive(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If Type(lprim) is String or Type(rprim) is String, then
     if (lval.isString() || rval.isString()) {
@@ -1835,14 +1793,16 @@ NEVER_INLINE Value InterpreterSlowPath::plusSlowCase(ExecutionState& state, cons
         // Let rstr be ? ToString(rprim).
         // Return the string-concatenation of lstr and rstr.
         ret = RopeString::createRopeString(lval.toString(state), rval.toString(state), &state);
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         // Let lnum be ? ToNumeric(lprim).
         auto lnum = lval.toNumeric(state);
         // Let rnum be ? ToNumeric(rprim).
         auto rnum = rval.toNumeric(state);
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         // If Type(lnum) is different from Type(rnum), throw a TypeError exception.
         if (UNLIKELY(lnum.second != rnum.second)) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
         }
         // Let T be Type(lnum).
         // Return T::add(lnum, rnum).
@@ -1867,9 +1827,10 @@ NEVER_INLINE Value InterpreterSlowPath::minusSlowCase(ExecutionState& state, con
     // Let rnum be ? ToNumeric(rval).
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     // If Type(lnum) is different from Type(rnum), throw a TypeError exception.
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     // Let T be Type(lnum).
     // Return T::subtract(lnum, rnum).
@@ -1884,8 +1845,9 @@ NEVER_INLINE Value InterpreterSlowPath::multiplySlowCase(ExecutionState& state, 
 {
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     if (UNLIKELY(lnum.second)) {
         return Value(lnum.first.asBigInt()->multiply(state, rnum.first.asBigInt()));
@@ -1898,12 +1860,13 @@ NEVER_INLINE Value InterpreterSlowPath::divisionSlowCase(ExecutionState& state, 
 {
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     if (UNLIKELY(lnum.second)) {
         if (UNLIKELY(rnum.first.asBigInt()->isZero())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::DivisionByZero);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::DivisionByZero);
         }
         return Value(lnum.first.asBigInt()->division(state, rnum.first.asBigInt()));
     } else {
@@ -1914,6 +1877,7 @@ NEVER_INLINE Value InterpreterSlowPath::divisionSlowCase(ExecutionState& state, 
 NEVER_INLINE Value InterpreterSlowPath::unaryMinusSlowCase(ExecutionState& state, const Value& src)
 {
     auto r = src.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (r.second) {
         return r.first.asBigInt()->negativeValue(state);
     } else {
@@ -1932,12 +1896,13 @@ NEVER_INLINE Value InterpreterSlowPath::modOperation(ExecutionState& state, cons
     } else {
         auto lnum = left.toNumeric(state);
         auto rnum = right.toNumeric(state);
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         if (UNLIKELY(lnum.second != rnum.second)) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
         }
         if (UNLIKELY(lnum.second)) {
             if (UNLIKELY(rnum.first.asBigInt()->isZero())) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::DivisionByZero);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::DivisionByZero);
             }
             return Value(lnum.first.asBigInt()->remainder(state, rnum.first.asBigInt()));
         }
@@ -1976,12 +1941,13 @@ NEVER_INLINE Value InterpreterSlowPath::exponentialOperation(ExecutionState& sta
 
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     if (UNLIKELY(lnum.second)) {
         if (UNLIKELY(rnum.first.asBigInt()->isNegative())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::ExponentByNegative);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::ExponentByNegative);
         }
         return Value(lnum.first.asBigInt()->pow(state, rnum.first.asBigInt()));
     }
@@ -2017,8 +1983,9 @@ NEVER_INLINE Value InterpreterSlowPath::bitwiseOperationSlowCase(ExecutionState&
 {
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     if (UNLIKELY(lnum.second)) {
         switch (kind) {
@@ -2051,6 +2018,7 @@ NEVER_INLINE Value InterpreterSlowPath::bitwiseOperationSlowCase(ExecutionState&
 NEVER_INLINE Value InterpreterSlowPath::bitwiseNotOperationSlowCase(ExecutionState& state, const Value& a)
 {
     auto r = a.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (r.second) {
         return r.first.asBigInt()->bitwiseNot(state);
     } else {
@@ -2062,8 +2030,9 @@ NEVER_INLINE Value InterpreterSlowPath::shiftOperationSlowCase(ExecutionState& s
 {
     auto lnum = left.toNumeric(state);
     auto rnum = right.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::CanNotMixBigIntWithOtherTypes);
     }
     if (UNLIKELY(lnum.second)) {
         switch (kind) {
@@ -2072,7 +2041,7 @@ NEVER_INLINE Value InterpreterSlowPath::shiftOperationSlowCase(ExecutionState& s
         case Interpreter::ShiftOperationKind::SignedRight:
             return lnum.first.asBigInt()->rightShift(state, rnum.first.asBigInt());
         case Interpreter::ShiftOperationKind::UnsignedRight:
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "BigInts have no unsigned right shift, use >> instead");
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "BigInts have no unsigned right shift, use >> instead");
             break;
         default:
             ASSERT_NOT_REACHED();
@@ -2126,14 +2095,16 @@ NEVER_INLINE void InterpreterSlowPath::deleteOperation(ExecutionState& state, Le
             EnvironmentRecord* envRec = state.getThisEnvironment();
             ASSERT(envRec->isDeclarativeEnvironmentRecord() && envRec->asDeclarativeEnvironmentRecord()->isFunctionEnvironmentRecord());
             envRec->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->getThisBinding(state); // check thisbinding
+            INT_RETURN_IF_PENDING_EXCEPTION
         }
         const Value& p = registerFile[code->m_srcIndex1];
         auto name = ObjectPropertyName(state, p);
 
         const Value& o = state.makeSuperPropertyReference();
+        INT_RETURN_IF_PENDING_EXCEPTION
         Object* obj = o.toObject(state);
 
-        ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.toObjectStructurePropertyName(state).toExceptionString(), false, String::emptyString, "ReferenceError: Unsupported reference to 'super'");
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, name.toObjectStructurePropertyName(state).toExceptionString(), false, String::emptyString, "ReferenceError: Unsupported reference to 'super'");
     } else {
         const Value& o = registerFile[code->m_srcIndex0];
         const Value& p = registerFile[code->m_srcIndex1];
@@ -2142,8 +2113,10 @@ NEVER_INLINE void InterpreterSlowPath::deleteOperation(ExecutionState& state, Le
         Object* obj = o.toObject(state);
 
         bool result = obj->deleteOwnProperty(state, name);
-        if (!result && state.inStrictMode())
+        if (!result && state.inStrictMode()) {
             Object::throwCannotDeleteError(state, name.toObjectStructurePropertyName(state));
+            INT_RETURN_FOR_EXCEPTION
+        }
         registerFile[code->m_dstIndex] = Value(result);
     }
 }
@@ -2214,6 +2187,7 @@ ALWAYS_INLINE bool abstractLeftIsLessThanRightNumeric(ExecutionState& state, con
     auto nx = lval.toNumeric(state);
     // Let ny be ? ToNumeric(py).
     auto ny = rval.toNumeric(state);
+    INT_RETURN_ZERO_IF_PENDING_EXCEPTION
 
     // If Type(nx) is the same as Type(ny), return Type(nx)::lessThan(nx, ny).
     // Assert: Type(nx) is BigInt and Type(ny) is Number, or Type(nx) is Number and Type(ny) is BigInt.
@@ -2243,9 +2217,11 @@ NEVER_INLINE bool InterpreterSlowPath::abstractLeftIsLessThanRightSlowCase(Execu
     if (switched) {
         rval = right.toPrimitive(state, Value::PreferNumber);
         lval = left.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     } else {
         lval = left.toPrimitive(state, Value::PreferNumber);
         rval = right.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     }
 
     if (lval.isInt32() && rval.isInt32()) {
@@ -2275,9 +2251,11 @@ NEVER_INLINE bool InterpreterSlowPath::abstractLeftIsLessThanEqualRightSlowCase(
     if (switched) {
         rval = right.toPrimitive(state, Value::PreferNumber);
         lval = left.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     } else {
         lval = left.toPrimitive(state, Value::PreferNumber);
         rval = right.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     }
 
     if (lval.isInt32() && rval.isInt32()) {
@@ -2633,10 +2611,11 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
     if (code->m_isLength && originalObject->isArrayObject()) {
         if (LIKELY(originalObject->asArrayObject()->isFastModeArray())) {
             if (!originalObject->asArrayObject()->setArrayLength(state, value) && state.inStrictMode()) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, code->m_propertyName.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, code->m_propertyName.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
             }
         } else {
             originalObject->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, code->m_propertyName), value, willBeObject);
+            INT_RETURN_IF_PENDING_EXCEPTION
         }
         return;
     }
@@ -2698,6 +2677,7 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
     if (findResult.first != SIZE_MAX) {
         // own property
         obj->setOwnPropertyThrowsExceptionWhenStrictMode(state, findResult.first, value, willBeObject);
+        INT_RETURN_IF_PENDING_EXCEPTION
         // Don't update the inline cache if the property is removed by a setter function.
         /* example code
         var o = { set foo (a) { var a = delete o.foo } };
@@ -2761,6 +2741,7 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
             code->m_missCount = maxCacheMissCount + 1;
             if (state.inStrictMode()) {
                 orgObject->throwCannotWriteError(state, code->m_propertyName);
+                // INT_RETURN_IF_PENDING_EXCEPTION
             }
             return;
         }
@@ -2792,6 +2773,7 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
     return;
 
 GiveUp:
+    INT_RETURN_IF_PENDING_EXCEPTION
     inlineCache->m_cache.clear();
     code->m_inlineCache = nullptr;
     code->m_missCount = maxCacheMissCount + 1;
@@ -2825,7 +2807,7 @@ NEVER_INLINE Value InterpreterSlowPath::getGlobalVariableSlowCase(ExecutionState
             slot->m_cachedStructure = nullptr;
             auto v = (*state.context()->globalDeclarativeStorage())[i];
             if (UNLIKELY(v.isEmpty())) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
             }
             return v;
         }
@@ -2842,7 +2824,7 @@ NEVER_INLINE Value InterpreterSlowPath::getGlobalVariableSlowCase(ExecutionState
                 if (!virtialIdResult.isEmpty())
                     return virtialIdResult;
             }
-            ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
             ASSERT_NOT_REACHED();
             return Value(Value::EmptyValue);
         }
@@ -2875,10 +2857,10 @@ NEVER_INLINE void InterpreterSlowPath::setGlobalVariableSlowCase(ExecutionState&
             slot->m_cachedStructure = nullptr;
             auto& place = (*ctx->globalDeclarativeStorage())[i];
             if (UNLIKELY(place.isEmpty())) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
             }
             if (UNLIKELY(!records[i].m_isMutable)) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::AssignmentToConstantVariable, name);
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::AssignmentToConstantVariable, name);
             }
             place = value;
             return;
@@ -2889,7 +2871,7 @@ NEVER_INLINE void InterpreterSlowPath::setGlobalVariableSlowCase(ExecutionState&
     auto findResult = go->structure()->findProperty(slot->m_propertyName);
     if (UNLIKELY(findResult.first == SIZE_MAX)) {
         if (UNLIKELY(state.inStrictMode())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::ReferenceError, slot->m_propertyName.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, slot->m_propertyName.string(), false, String::emptyString, ErrorObject::Messages::IsNotDefined);
         }
         VirtualIdDisabler d(state.context());
         go->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, slot->m_propertyName), value, go);
@@ -3199,16 +3181,16 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
                 protoParent = Value(Value::Null);
                 constructorParent = state.context()->globalObject()->functionPrototype();
             } else if (!superClass.isConstructor()) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Extends_Value_Is_Not_Object_Nor_Null);
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Extends_Value_Is_Not_Object_Nor_Null);
             } else {
                 if (superClass.isObject() && superClass.asObject()->isGeneratorObject()) {
-                    ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Prototype_Is_Not_Object_Nor_Null);
+                    THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Prototype_Is_Not_Object_Nor_Null);
                 }
 
                 protoParent = superClass.asObject()->get(state, ObjectPropertyName(state.context()->staticStrings().prototype)).value(state, Value());
 
                 if (!protoParent.isObject() && !protoParent.isNull()) {
-                    ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Prototype_Is_Not_Object_Nor_Null);
+                    THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Prototype_Is_Not_Object_Nor_Null);
                 }
 
                 constructorParent = superClass;
@@ -3272,10 +3254,12 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
             classConstructor->m_staticFieldInitData.resize(0, code->m_staticFieldSize);
         } else if (code->m_stage == InitializeClass::InitField) {
             registerFile[code->m_propertyInitRegisterIndex] = registerFile[code->m_propertyInitRegisterIndex].toPropertyKey(state);
+            INT_RETURN_IF_PENDING_EXCEPTION
             std::get<0>(classConstructor->m_instanceFieldInitData[code->m_initFieldIndex]) = registerFile[code->m_propertyInitRegisterIndex];
             std::get<2>(classConstructor->m_instanceFieldInitData[code->m_initFieldIndex]) = ScriptClassConstructorFunctionObject::NotPrivate;
         } else if (code->m_stage == InitializeClass::InitPrivateField) {
             registerFile[code->m_privatePropertyInitRegisterIndex] = registerFile[code->m_privatePropertyInitRegisterIndex].toPropertyKey(state);
+            INT_RETURN_IF_PENDING_EXCEPTION
             std::get<0>(classConstructor->m_instanceFieldInitData[code->m_initPrivateFieldIndex]) = registerFile[code->m_privatePropertyInitRegisterIndex];
             std::get<2>(classConstructor->m_instanceFieldInitData[code->m_initPrivateFieldIndex]) = code->m_initPrivateFieldType;
         } else if (code->m_stage == InitializeClass::SetFieldData) {
@@ -3329,7 +3313,7 @@ NEVER_INLINE void InterpreterSlowPath::superOperation(ExecutionState& state, Sup
         Object* newTarget = state.getNewTarget();
         // If newTarget is undefined, throw a ReferenceError exception.
         if (!newTarget) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::New_Target_Is_Undefined);
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::New_Target_Is_Undefined);
         }
         registerFile[code->m_dstIndex] = state.getSuperConstructor();
     } else {
@@ -3346,6 +3330,7 @@ NEVER_INLINE void InterpreterSlowPath::complexSetObjectOperation(ExecutionState&
             EnvironmentRecord* envRec = state.getThisEnvironment();
             ASSERT(envRec->isDeclarativeEnvironmentRecord() && envRec->asDeclarativeEnvironmentRecord()->isFunctionEnvironmentRecord());
             thisValue = envRec->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->getThisBinding(state);
+            INT_RETURN_IF_PENDING_EXCEPTION
         } else {
             thisValue = registerFile[byteCodeBlock->m_requiredOperandRegisterNumber];
         }
@@ -3363,7 +3348,7 @@ NEVER_INLINE void InterpreterSlowPath::complexSetObjectOperation(ExecutionState&
             // testing is strict mode || IsStrictReference(V)
             // IsStrictReference returns true if code is class method
             if (state.inStrictMode() || !state.resolveCallee()->codeBlock()->asInterpretedCodeBlock()->isObjectMethod()) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ObjectPropertyName(state, registerFile[code->m_propertyNameIndex]).toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ObjectPropertyName(state, registerFile[code->m_propertyNameIndex]).toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
             }
         }
     } else {
@@ -3383,6 +3368,7 @@ NEVER_INLINE void InterpreterSlowPath::complexGetObjectOperation(ExecutionState&
             EnvironmentRecord* envRec = state.getThisEnvironment();
             ASSERT(envRec->isDeclarativeEnvironmentRecord() && envRec->asDeclarativeEnvironmentRecord()->isFunctionEnvironmentRecord());
             thisValue = envRec->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->getThisBinding(state);
+            INT_RETURN_IF_PENDING_EXCEPTION
         } else {
             thisValue = registerFile[byteCodeBlock->m_requiredOperandRegisterNumber];
         }
@@ -3495,6 +3481,7 @@ NEVER_INLINE void InterpreterSlowPath::replaceBlockLexicalEnvironmentOperation(E
         auto siz = iv.size();
         for (size_t i = 0; i < siz; i++) {
             newRecord->createBinding(state, iv[i].m_name, false, iv[i].m_isMutable, false);
+            INT_RETURN_IF_PENDING_EXCEPTION
         }
     }
     newEnv = new LexicalEnvironment(newRecord, state.lexicalEnvironment()->outerEnvironment());
@@ -3530,7 +3517,11 @@ NEVER_INLINE Value InterpreterSlowPath::blockOperation(ExecutionState*& state, B
             auto& iv = blockInfo->m_identifiers;
             auto siz = iv.size();
             for (size_t i = 0; i < siz; i++) {
+                // Return Exception Done!
                 newRecord->createBinding(*state, iv[i].m_name, false, iv[i].m_isMutable, false);
+                if (UNLIKELY(state->hasPendingException())) {
+                    return Value(Value::Exception);
+                }
             }
         }
         newEnv = new LexicalEnvironment(newRecord, state->lexicalEnvironment());
@@ -3604,11 +3595,12 @@ NEVER_INLINE void InterpreterSlowPath::binaryInOperation(ExecutionState& state, 
     const Value& left = registerFile[code->m_srcIndex0];
     const Value& right = registerFile[code->m_srcIndex1];
     if (!right.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "type of rvalue is not Object");
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "type of rvalue is not Object");
     }
 
     if (UNLIKELY(code->m_extraData)) {
         registerFile[code->m_dstIndex] = Value(right.toObject(state)->hasPrivateMember(state, state.findPrivateMemberContextObject(), AtomicString(state, left.asString()), false));
+        INT_RETURN_IF_PENDING_EXCEPTION
     } else {
         registerFile[code->m_dstIndex] = Value(right.toObject(state)->hasProperty(state, ObjectPropertyName(state, left)));
     }
@@ -3618,9 +3610,9 @@ NEVER_INLINE Value InterpreterSlowPath::constructOperation(ExecutionState& state
 {
     if (!constructor.isConstructor()) {
         if (constructor.isFunction()) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Not_Constructor_Function, constructor.asFunction()->codeBlock()->functionName());
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::Not_Constructor_Function, constructor.asFunction()->codeBlock()->functionName());
         }
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::Not_Constructor);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::Not_Constructor);
     }
 
     return constructor.asPointerValue()->construct(state, argc, argv, constructor.asObject());
@@ -3673,6 +3665,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
         Object* receiverObj = NULL;
         Value callee;
         EnvironmentRecord* bindedRecord = getBindedEnvironmentRecordByName(state, state.lexicalEnvironment(), calleeName, callee);
+        INT_RETURN_IF_PENDING_EXCEPTION;
         ASSERT(!!bindedRecord);
 
         if (bindedRecord && bindedRecord->isObjectEnvironmentRecord()) {
@@ -3699,7 +3692,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
         const Value& callee = registerFile[code->m_calleeIndex];
         const Value& receiver = registerFile[code->m_receiverOrThisIndex];
         if (UNLIKELY(!callee.isPointerValue() || !receiver.isPointerValue())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
         }
 
         auto functionRecord = state.mostNearestFunctionLexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord();
@@ -3724,6 +3717,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
                     argumentsValue = registerFile[idInfo[i].m_indexForIndexedStorage + byteCodeBlock->m_requiredOperandRegisterNumber];
                 } else {
                     argumentsValue = functionRecord->getBindingValue(state, argumentsAtomicString).m_value;
+                    INT_RETURN_IF_PENDING_EXCEPTION
                 }
             }
         }
@@ -3765,6 +3759,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
                     LexicalEnvironment* env = state.lexicalEnvironment();
                     while (env) {
                         EnvironmentRecord::GetBindingValueResult result = env->record()->getBindingValue(state, state.context()->staticStrings().eval);
+                        INT_RETURN_IF_PENDING_EXCEPTION
                         if (result.m_hasBindingValue) {
                             break;
                         }
@@ -3788,7 +3783,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
         // https://www.ecma-international.org/ecma-262/6.0/#sec-call
         // If IsCallable(F) is false, throw a TypeError exception.
         if (UNLIKELY(!callee.isPointerValue())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
         }
 
         {
@@ -3824,12 +3819,14 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
 
         // Let result be Construct(func, argList, newTarget).
         Value result = Object::construct(state, registerFile[code->m_calleeIndex], argc, argv, newTarget);
+        INT_RETURN_IF_PENDING_EXCEPTION
 
         // Let thisER be GetThisEnvironment( ).
         // Return thisER.BindThisValue(result).
         EnvironmentRecord* thisER = state.getThisEnvironment();
         FunctionEnvironmentRecord* r = thisER->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord();
         r->bindThisValue(state, result);
+        INT_RETURN_IF_PENDING_EXCEPTION
         r->functionObject()->asScriptClassConstructorFunctionObject()->initInstanceFieldMembers(state, result.asObject());
         registerFile[code->m_resultIndex] = result;
         break;
@@ -3849,6 +3846,7 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
         Platform::ModuleType moduleType = Platform::ModuleES;
         // Let promiseCapability be ! NewPromiseCapability(%Promise%).
         auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+        ASSERT(!state.hasPendingException());
 
         // Let specifierString be ToString(specifier).
         String* specifierString = String::emptyString;
@@ -3858,6 +3856,8 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
 
             if (code->m_argumentCount == 2) {
                 moduleType = static_cast<Platform::ModuleType>(evaluateImportAssertionOperation(state, registerFile[code->m_argumentsStartIndex + 1]));
+                // FIXME EXCEPTION
+                INT_RETURN_IF_PENDING_EXCEPTION
             }
         } catch (const Value& v) {
             Value thrownValue = v;
@@ -4045,7 +4045,7 @@ NEVER_INLINE Value InterpreterSlowPath::executionResumeOperation(ExecutionState*
             }
             return data->m_resumeValue;
         } else if (needsThrow) {
-            state->throwException(data->m_resumeValue);
+            THROW_EXCEPTION_RETURN_VALUE((*state), data->m_resumeValue);
         }
 
         return Value(Value::EmptyValue);
@@ -4185,6 +4185,7 @@ NEVER_INLINE void InterpreterSlowPath::arrayDefineOwnPropertyBySpreadElementOper
 
         size_t newLength = baseIndex + elementLength;
         arr->setArrayLength(state, newLength);
+        INT_RETURN_IF_PENDING_EXCEPTION
         ASSERT(arr->isFastModeArray());
 
         size_t elementIndex = 0;
@@ -4248,6 +4249,7 @@ NEVER_INLINE void InterpreterSlowPath::createSpreadArrayObject(ExecutionState& s
     ASSERT(spreadArray->isFastModeArray());
 
     IteratorRecord* iteratorRecord = IteratorObject::getIterator(state, registerFile[code->m_argumentIndex]);
+    INT_RETURN_IF_PENDING_EXCEPTION
     size_t i = 0;
     while (true) {
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
@@ -4304,6 +4306,7 @@ NEVER_INLINE void InterpreterSlowPath::defineObjectGetterSetter(ExecutionState& 
             // try to fill cache
             auto oldStructure = object->structure();
             defineObjectGetterSetterOperation(state, code, byteCodeBlock, registerFile, object);
+            INT_RETURN_IF_PENDING_EXCEPTION
             auto newStructure = object->structure();
             if (object->isInlineCacheable() && oldStructure != newStructure) {
                 byteCodeBlock->m_otherLiteralData.push_back(oldStructure);
@@ -4341,6 +4344,7 @@ NEVER_INLINE Value InterpreterSlowPath::incrementOperationSlowCase(ExecutionStat
     // https://www.ecma-international.org/ecma-262/#sec-postfix-increment-operator
     // https://www.ecma-international.org/ecma-262/#sec-prefix-increment-operator
     auto newVal = value.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(newVal.second)) {
         return Value(newVal.first.asBigInt()->increment(state));
     } else {
@@ -4370,6 +4374,7 @@ NEVER_INLINE Value InterpreterSlowPath::decrementOperationSlowCase(ExecutionStat
     // https://www.ecma-international.org/ecma-262/#sec-postfix-decrement-operator
     // https://www.ecma-international.org/ecma-262/#sec-prefix-decrement-operator
     auto newVal = value.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(newVal.second)) {
         return Value(newVal.first.asBigInt()->decrement(state));
     } else {
@@ -4421,10 +4426,12 @@ NEVER_INLINE void InterpreterSlowPath::unaryTypeof(ExecutionState& state, UnaryT
 
 NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, size_t& programCounter, Value* registerFile, char* codeBuffer)
 {
+    // FIXME EXCEPTION
     IteratorOperation* code = (IteratorOperation*)programCounter;
     if (code->m_operation == IteratorOperation::Operation::GetIterator) {
         const Value& obj = registerFile[code->m_getIteratorData.m_srcObjectRegisterIndex];
         registerFile[code->m_getIteratorData.m_dstIteratorRecordIndex] = IteratorObject::getIterator(state, obj, code->m_getIteratorData.m_isSyncIterator);
+        INT_RETURN_IF_PENDING_EXCEPTION
         if (code->m_getIteratorData.m_dstIteratorObjectIndex != REGISTER_LIMIT) {
             registerFile[code->m_getIteratorData.m_dstIteratorObjectIndex] = registerFile[code->m_getIteratorData.m_dstIteratorRecordIndex].asPointerValue()->asIteratorRecord()->m_iterator;
         }
@@ -4433,6 +4440,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
         if (code->m_iteratorCloseData.m_execeptionRegisterIndexIfExists != REGISTER_LIMIT) {
             IteratorRecord* iteratorRecord = registerFile[code->m_iteratorCloseData.m_iterRegisterIndex].asPointerValue()->asIteratorRecord();
             IteratorObject::iteratorClose(state, iteratorRecord, registerFile[code->m_iteratorCloseData.m_execeptionRegisterIndexIfExists], true);
+            INT_RETURN_IF_PENDING_EXCEPTION
         } else {
             bool exceptionWasThrown = state.hasRareData() && state.rareData()->m_controlFlowRecord && state.rareData()->m_controlFlowRecord->back() && state.rareData()->m_controlFlowRecord->back()->reason() == ControlFlowRecord::NeedsThrow;
             IteratorRecord* iteratorRecord = registerFile[code->m_iteratorCloseData.m_iterRegisterIndex].asPointerValue()->asIteratorRecord();
@@ -4447,6 +4455,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
             bool innerResultHasException = false;
             try {
                 innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
+                INT_RETURN_IF_PENDING_EXCEPTION
             } catch (const Value& e) {
                 innerResult = e;
                 innerResultHasException = true;
@@ -4458,11 +4467,11 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
             }
 
             if (innerResultHasException) {
-                state.throwException(innerResult);
+                THROW_EXCEPTION_RETURN(state, innerResult);
             }
 
             if (!innerResult.isObject()) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Iterator close result is not an object");
+                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "Iterator close result is not an object");
             }
         }
         ADD_PROGRAM_COUNTER(IteratorOperation);
@@ -4479,7 +4488,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
             } catch (const Value& e) {
                 Value exceptionValue = e;
                 iteratorRecord->m_done = true;
-                state.throwException(exceptionValue);
+                THROW_EXCEPTION_RETURN(state, exceptionValue);
             }
 
             if (!nextResult.hasValue()) {
@@ -4490,7 +4499,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
                 } catch (const Value& e) {
                     Value exceptionValue = e;
                     iteratorRecord->m_done = true;
-                    state.throwException(exceptionValue);
+                    THROW_EXCEPTION_RETURN(state, exceptionValue);
                 }
             }
         }
@@ -4516,7 +4525,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
         ADD_PROGRAM_COUNTER(IteratorOperation);
     } else if (code->m_operation == IteratorOperation::Operation::IteratorTestResultIsObject) {
         if (!registerFile[code->m_iteratorTestResultIsObjectData.m_valueRegisterIndex].isObject()) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "IteratorResult is not an object");
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "IteratorResult is not an object");
         }
         ADD_PROGRAM_COUNTER(IteratorOperation);
     } else if (code->m_operation == IteratorOperation::Operation::IteratorValue) {
@@ -4525,7 +4534,7 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
     } else if (code->m_operation == IteratorOperation::Operation::IteratorCheckOngoingExceptionOnAsyncIteratorClose) {
         ControlFlowRecord* record = state.rareData()->m_controlFlowRecord->back();
         if (record && record->reason() == ControlFlowRecord::NeedsThrow) {
-            state.context()->throwException(state, record->value());
+            THROW_EXCEPTION_RETURN(state, record->value());
         }
         ADD_PROGRAM_COUNTER(IteratorOperation);
     } else {
@@ -4541,6 +4550,7 @@ NEVER_INLINE void InterpreterSlowPath::getMethodOperation(ExecutionState& state,
 
 NEVER_INLINE Object* InterpreterSlowPath::restBindOperation(ExecutionState& state, IteratorRecord* iteratorRecord)
 {
+    // FIXME EXCEPTION
     auto strings = &state.context()->staticStrings();
 
     Object* result = new ArrayObject(state);
@@ -4555,7 +4565,7 @@ NEVER_INLINE Object* InterpreterSlowPath::restBindOperation(ExecutionState& stat
             } catch (const Value& e) {
                 Value exceptionValue = e;
                 iteratorRecord->m_done = true;
-                state.throwException(exceptionValue);
+                THROW_EXCEPTION_RETURN_NULL(state, exceptionValue);
             }
 
             if (!nextResult.hasValue()) {
@@ -4572,7 +4582,7 @@ NEVER_INLINE Object* InterpreterSlowPath::restBindOperation(ExecutionState& stat
         } catch (const Value& e) {
             Value exceptionValue = e;
             iteratorRecord->m_done = true;
-            state.throwException(exceptionValue);
+            THROW_EXCEPTION_RETURN_NULL(state, exceptionValue);
         }
 
         result->setIndexedProperty(state, Value(index++), value);
@@ -4649,7 +4659,7 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
     }
 
     if (!options.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ThisNotObject);
     }
 
     ObjectGetResult result = options.asObject()->get(state, ObjectPropertyName(state.context()->staticStrings().assert));
@@ -4665,7 +4675,7 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
     }
 
     if (!assertions.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ThisNotObject);
     }
 
     Object* assertObject = assertions.asObject();
@@ -4684,12 +4694,12 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
             // Currently only "type" is supported
             if (!key.isString() || !key.asString()->equals("type")) {
                 String* asString = key.toStringWithoutException(state);
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, asString, false, String::emptyString, "unsupported import assertion key: %s");
+                THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::TypeError, asString, false, String::emptyString, "unsupported import assertion key: %s");
             }
 
             if (!resultValue.isString() || !resultValue.asString()->equals("json")) {
                 String* asString = resultValue.toStringWithoutException(state);
-                ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, asString, false, String::emptyString, "unsupported import assertion type: %s");
+                THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::RangeError, asString, false, String::emptyString, "unsupported import assertion type: %s");
             }
         }
 
@@ -4699,37 +4709,4 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
     return Platform::ModuleES;
 }
 
-#if defined(ENABLE_TCO)
-NEVER_INLINE Value InterpreterSlowPath::tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& callee, Value* registerFile)
-{
-    // fail to tail recursion
-    // convert to CallReturn
-    code->changeOpcode(Opcode::CallReturnOpcode);
-
-    // if PointerValue is not callable, PointerValue::call function throws builtin error
-    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
-    // If IsCallable(F) is false, throw a TypeError exception.
-    if (UNLIKELY(!callee.isPointerValue())) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
-    }
-
-    return callee.asPointerValue()->call(state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
-}
-
-NEVER_INLINE Value InterpreterSlowPath::tailRecursionWithReceiverSlowCase(ExecutionState& state, TailRecursionWithReceiver* code, const Value& callee, const Value& receiver, Value* registerFile)
-{
-    // fail to tail recursion
-    // convert to CallReturn
-    code->changeOpcode(Opcode::CallReturnWithReceiverOpcode);
-
-    // if PointerValue is not callable, PointerValue::call function throws builtin error
-    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
-    // If IsCallable(F) is false, throw a TypeError exception.
-    if (UNLIKELY(!callee.isPointerValue())) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
-    }
-
-    return callee.asPointerValue()->call(state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
-}
-#endif
 } // namespace Escargot

@@ -181,6 +181,7 @@ public:
                 AsyncGeneratorObject* gen = new AsyncGeneratorObject(state, proto, newState, registerFile, blk);
                 newState->setPauseSource(gen->executionPauser());
                 newState->pauseSource()->m_promiseCapability = PromiseObject::newPromiseCapability(*newState, newState->context()->globalObject()->promise());
+                ASSERT(!newState->hasPendingException());
                 ExecutionPauser::start(state, newState->pauseSource(), newState->pauseSource()->sourceObject(), Value(), false, false, ExecutionPauser::StartFrom::AsyncGenerator);
                 generatorObject = gen;
             }
@@ -195,6 +196,7 @@ public:
             newState = new ExecutionState(ctx, nullptr, lexEnv, argc, argv, isStrict, ExecutionState::ForPauser);
             newState->setPauseSource(new ExecutionPauser(state, self, newState, registerFile, blk));
             newState->pauseSource()->m_promiseCapability = PromiseObject::newPromiseCapability(*newState, newState->context()->globalObject()->promise());
+            ASSERT(!newState->hasPendingException());
         } else {
             newState = new (alloca(sizeof(ExecutionState))) ExecutionState(ctx, &state, lexEnv, argc, argv, isStrict);
         }
@@ -204,6 +206,14 @@ public:
         // https://www.ecma-international.org/ecma-262/6.0/#sec-ordinarycallbindthis
         // NOTE ToObject produces wrapper objects using calleeRealm. <<----
         stackStorage[0] = thisValueBinder(state, *newState, self, thisArgument, isStrict);
+        // check thisValueBinder result
+        if (std::is_same<FunctionObjectType, ScriptClassConstructorFunctionObject>::value) {
+            if (UNLIKELY(newState->hasPendingException())) {
+                ASSERT(stackStorage[0].isException());
+                state.setPendingException();
+                return Value(Value::Exception);
+            }
+        }
 
         if (isConstructCall) {
             NewTargetBinder newTargetBinder;
@@ -216,6 +226,12 @@ public:
                                                     std::is_same<FunctionObjectType, ScriptAsyncFunctionObject>::value ? ExecutionPauser::start(state, newState->pauseSource(), newState->pauseSource()->sourceObject(), Value(), false, false, ExecutionPauser::StartFrom::Async)
                                                                                                                        : Interpreter::interpret(newState, blk, reinterpret_cast<const size_t>(blk->m_code.data()), registerFile),
                                                     thisArgument, record);
+
+        // check Exception
+        if (UNLIKELY(returnValue.isException())) {
+            ASSERT(newState->hasPendingException());
+            state.setPendingException();
+        }
 
         if (UNLIKELY(blk->m_shouldClearStack)) {
             clearStack<512>();
@@ -294,13 +310,20 @@ Value NativeFunctionObject::processNativeFunctionCall(ExecutionState& state, con
     if (isConstruct) {
         result = nativeFunc(newState, receiver, argc, argv, newTarget);
         if (shouldReturnsObjectOnConstructCall && UNLIKELY(!result.isObject())) {
+            // return exception done!
             ErrorObject::throwBuiltinError(newState, ErrorCode::TypeError, "Native Constructor must returns constructed new object");
+            result = Value(Value::Exception);
         }
     } else {
         ASSERT(!newTarget);
         result = nativeFunc(newState, receiver, argc, argv, nullptr);
     }
 
+    // check Exception
+    if (UNLIKELY(result.isException())) {
+        ASSERT(newState.hasPendingException());
+        state.setPendingException();
+    }
 #ifdef ESCARGOT_DEBUGGER
     Debugger::updateStopState(state.context()->debugger(), &newState, ESCARGOT_DEBUGGER_ALWAYS_STOP);
 #endif /* ESCARGOT_DEBUGGER */

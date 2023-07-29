@@ -59,27 +59,31 @@ IteratorRecord* IteratorObject::getIterator(ExecutionState& state, const Value& 
         if (!sync) {
             // Set method to ? GetMethod(obj, @@asyncIterator).
             method = Object::getMethod(state, obj, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().asyncIterator));
+            RETURN_NULL_IF_PENDING_EXCEPTION
             // If method is undefined, then
             if (method.isUndefined()) {
                 // Let syncMethod be ? GetMethod(obj, @@iterator).
                 auto syncMethod = Object::getMethod(state, obj, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator));
                 // Let syncIteratorRecord be ? GetIterator(obj, sync, syncMethod).
                 auto syncIteratorRecord = getIterator(state, obj, true, syncMethod);
+                RETURN_NULL_IF_PENDING_EXCEPTION
                 // Return ? CreateAsyncFromSyncIterator(syncIteratorRecord).
                 return AsyncFromSyncIteratorObject::createAsyncFromSyncIterator(state, syncIteratorRecord);
             }
         } else {
             // Otherwise, set method to ? GetMethod(obj, @@iterator).
             method = Object::getMethod(state, obj, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator));
+            RETURN_NULL_IF_PENDING_EXCEPTION
         }
     }
 
     // Let iterator be ? Call(method, obj).
     Value iterator = Object::call(state, method, obj, 0, nullptr);
+    RETURN_NULL_IF_PENDING_EXCEPTION
 
     // If Type(iterator) is not Object, throw a TypeError exception.
     if (!iterator.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "result of GetIterator is not an object");
+        THROW_BUILTIN_ERROR_RETURN_NULL(state, ErrorCode::TypeError, "result of GetIterator is not an object");
     }
 
     // Let nextMethod be ? GetV(iterator, "next").
@@ -105,9 +109,10 @@ Object* IteratorObject::iteratorNext(ExecutionState& state, IteratorRecord* iter
         Value args[] = { value };
         result = Object::call(state, nextMethod, iterator, 1, args);
     }
+    RETURN_NULL_IF_PENDING_EXCEPTION
 
     if (!result.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "result is not an object");
+        THROW_BUILTIN_ERROR_RETURN_NULL(state, ErrorCode::TypeError, "result is not an object");
     }
 
     return result.asObject();
@@ -130,6 +135,7 @@ Value IteratorObject::iteratorValue(ExecutionState& state, Object* iterResult)
 Optional<Object*> IteratorObject::iteratorStep(ExecutionState& state, IteratorRecord* iteratorRecord)
 {
     Object* result = IteratorObject::iteratorNext(state, iteratorRecord);
+    ASSERT(!state.hasPendingException());
     bool done = IteratorObject::iteratorComplete(state, result);
 
     return done ? nullptr : result;
@@ -143,9 +149,10 @@ Value IteratorObject::iteratorClose(ExecutionState& state, IteratorRecord* itera
     IteratorRecord* record = iteratorRecord;
     Value iterator = record->m_iterator;
     Value returnFunction = Object::getMethod(state, iterator, ObjectPropertyName(strings->stringReturn));
+    RETURN_NULL_IF_PENDING_EXCEPTION
     if (returnFunction.isUndefined()) {
         if (hasThrowOnCompletionType) {
-            state.throwException(completionValue);
+            THROW_EXCEPTION_RETURN_VALUE(state, completionValue);
         }
         return completionValue;
     }
@@ -155,21 +162,22 @@ Value IteratorObject::iteratorClose(ExecutionState& state, IteratorRecord* itera
     bool innerResultHasException = false;
     try {
         innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& e) {
         innerResult = e;
         innerResultHasException = true;
     }
     // If completion.[[type]] is throw, return Completion(completion).
     if (hasThrowOnCompletionType) {
-        state.throwException(completionValue);
+        THROW_EXCEPTION_RETURN_VALUE(state, completionValue);
     }
     // If innerResult.[[type]] is throw, return Completion(innerResult).
     if (innerResultHasException) {
-        state.throwException(innerResult);
+        THROW_EXCEPTION_RETURN_VALUE(state, innerResult);
     }
     // If Type(innerResult.[[value]]) is not Object, throw a TypeError exception.
     if (!innerResult.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Iterator close result is not an object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "Iterator close result is not an object");
     }
     // Return Completion(completion).
     return completionValue;
@@ -196,6 +204,10 @@ ValueVectorWithInlineStorage IteratorObject::iterableToList(ExecutionState& stat
     ValueVectorWithInlineStorage values;
     Optional<Object*> next;
 
+    if (UNLIKELY(state.hasPendingException())) {
+        return values;
+    }
+
     while (true) {
         next = IteratorObject::iteratorStep(state, iteratorRecord);
         if (next.hasValue()) {
@@ -215,6 +227,8 @@ ValueVector IteratorObject::iterableToListOfType(ExecutionState& state, const Va
     IteratorRecord* iteratorRecord = IteratorObject::getIterator(state, items, true);
     ValueVector values;
     Optional<Object*> next;
+    // ignore exception
+    ASSERT(!state.hasPendingException());
 
     while (true) {
         next = IteratorObject::iteratorStep(state, iteratorRecord);

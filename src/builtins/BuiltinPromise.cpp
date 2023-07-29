@@ -36,12 +36,12 @@ static Value builtinPromiseConstructor(ExecutionState& state, Value thisValue, s
 {
     auto strings = &state.context()->staticStrings();
     if (!newTarget.hasValue()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, String::emptyString, "%s: Promise constructor should be called with new Promise()");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, String::emptyString, "%s: Promise constructor should be called with new Promise()");
     }
 
     Value executor = argv[0];
     if (!executor.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, String::emptyString, "%s: Promise executor is not a function object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, String::emptyString, "%s: Promise executor is not a function object");
     }
 
     // Let promise be ? OrdinaryCreateFromConstructor(NewTarget, "%PromisePrototype%", « [[PromiseState]], [[PromiseResult]], [[PromiseFulfillReactions]], [[PromiseRejectReactions]], [[PromiseIsHandled]] »).
@@ -63,11 +63,13 @@ static Value builtinPromiseConstructor(ExecutionState& state, Value thisValue, s
     auto res = sb.run([&]() -> Value {
         Value arguments[] = { capability.m_resolveFunction, capability.m_rejectFunction };
         Object::call(state, executor, Value(), 2, arguments);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return Value();
     });
     if (!res.error.isEmpty()) {
         Value arguments[] = { res.error };
         Object::call(state, capability.m_rejectFunction, Value(), 1, arguments);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     return promise;
@@ -81,7 +83,7 @@ static Value getPromiseResolve(ExecutionState& state, Object* promiseConstructor
     auto promiseResolve = promiseConstructor->get(state, state.context()->staticStrings().resolve).value(state, promiseConstructor);
     // If IsCallable(promiseResolve) is false, throw a TypeError exception.
     if (!promiseResolve.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Promise resolve is not callable");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "Promise resolve is not callable");
     }
     // Return promiseResolve.
     return promiseResolve;
@@ -95,11 +97,12 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
     // Let C be the this value.
     // If Type(C) is not Object, throw a TypeError exception.
     if (!thisValue.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->all.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->all.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
     }
     Object* C = thisValue.asObject();
     // Let promiseCapability be NewPromiseCapability(C).
     PromiseReaction::Capability promiseCapability = PromiseObject::newPromiseCapability(state, C);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let promiseResolve be GetPromiseResolve(C).
     Value promiseResolve;
     try {
@@ -109,6 +112,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -118,11 +122,13 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
     IteratorRecord* iteratorRecord;
     try {
         iteratorRecord = IteratorObject::getIterator(state, argv[0]);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& v) {
         Value thrownValue = v;
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -162,6 +168,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
                     // Perform ? Call(resultCapability.[[Resolve]], undefined, « valuesArray »).
                     Value argv = Object::createArrayFromList(state, *values);
                     Value resolveResult = Object::call(state, promiseCapability.m_resolveFunction, Value(), 1, &argv);
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                 }
                 // Return resultCapability.[[Promise]].
                 result = promiseCapability.m_promise;
@@ -181,6 +188,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
             values->pushBack(Value());
             // Let nextPromise be Invoke(constructor, "resolve", « nextValue »).
             Value nextPromise = Object::call(state, promiseResolve, C, 1, &nextValue);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Let resolveElement be a new built-in function object as defined in Promise.all Resolve Element Functions.
             ExtendedNativeFunctionObject* resolveElement = new ExtendedNativeFunctionObjectImpl<6>(state, NativeFunctionInfo(AtomicString(), PromiseObject::promiseAllResolveElementFunction, 1, NativeFunctionInfo::Strict));
@@ -205,6 +213,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
             Object* nextPromiseObject = nextPromise.toObject(state);
             Value argv[] = { Value(resolveElement), Value(promiseCapability.m_rejectFunction) };
             Object::call(state, nextPromiseObject->get(state, strings->then).value(state, nextPromiseObject), nextPromiseObject, 2, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Increase index by 1.
             index++;
         }
@@ -216,6 +225,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
         try {
             if (!iteratorRecord->m_done) {
                 result = IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
         } catch (const Value& v) {
             exceptionValue = v;
@@ -224,6 +234,7 @@ static Value builtinPromiseAll(ExecutionState& state, Value thisValue, size_t ar
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &exceptionValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -239,13 +250,14 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
     // Let C be the this value.
     // If Type(C) is not Object, throw a TypeError exception.
     if (!thisValue.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->race.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->race.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
     }
     Object* C = thisValue.asObject();
 
     // Let promiseCapability be NewPromiseCapability(C).
     // ReturnIfAbrupt(promiseCapability).
     PromiseReaction::Capability promiseCapability = PromiseObject::newPromiseCapability(state, C);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let promiseResolve be GetPromiseResolve(C).
     Value resolve;
     try {
@@ -255,6 +267,7 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -264,11 +277,13 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
     IteratorRecord* record;
     try {
         record = IteratorObject::getIterator(state, argv[0]);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& v) {
         Value thrownValue = v;
         // If value is an abrupt completion,
         // Let rejectResult be Call(capability.[[Reject]], undefined, «value.[[value]]»).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -310,10 +325,12 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
 
             // Let nextPromise be Invoke(C, "resolve", «nextValue»).
             Value nextPromise = Object::call(state, resolve, C, 1, &nextValue);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Perform ? Invoke(nextPromise, "then", « resultCapability.[[Resolve]], resultCapability.[[Reject]] »).
             Object* nextPromiseObject = nextPromise.toObject(state);
             Value argv[] = { Value(promiseCapability.m_resolveFunction), Value(promiseCapability.m_rejectFunction) };
             Object::call(state, nextPromiseObject->get(state, strings->then).value(state, nextPromiseObject), nextPromiseObject, 2, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
     } catch (const Value& e) {
         Value exceptionValue = e;
@@ -323,6 +340,7 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
         try {
             if (!record->m_done) {
                 result = IteratorObject::iteratorClose(state, record, exceptionValue, true);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
         } catch (const Value& v) {
             exceptionValue = v;
@@ -330,6 +348,7 @@ static Value builtinPromiseRace(ExecutionState& state, Value thisValue, size_t a
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &exceptionValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -343,9 +362,11 @@ static Value builtinPromiseReject(ExecutionState& state, Value thisValue, size_t
     auto strings = &state.context()->staticStrings();
     Object* thisObject = thisValue.toObject(state);
     PromiseReaction::Capability capability = PromiseObject::newPromiseCapability(state, thisObject);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     Value arguments[] = { argv[0] };
     Object::call(state, capability.m_rejectFunction, Value(), 1, arguments);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return capability.m_promise;
 }
 
@@ -356,7 +377,7 @@ static Value builtinPromiseResolve(ExecutionState& state, Value thisValue, size_
     const Value& C = thisValue;
     // If Type(C) is not Object, throw a TypeError exception.
     if (!C.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Promise.string(), false, state.context()->staticStrings().resolve.string(), "%s: PromiseResolve called on non-object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Promise.string(), false, state.context()->staticStrings().resolve.string(), "%s: PromiseResolve called on non-object");
     }
     // Return ? PromiseResolve(C, x).
     return PromiseObject::promiseResolve(state, C.asObject(), argv[0]);
@@ -379,11 +400,12 @@ static Value builtinPromiseFinally(ExecutionState& state, Value thisValue, size_
     auto strings = &state.context()->staticStrings();
 
     if (!thisValue.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->finally.string(), "%s: not a Promise object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->finally.string(), "%s: not a Promise object");
     }
 
     Object* thisObject = thisValue.asObject();
     Value C = thisObject->speciesConstructor(state, state.context()->globalObject()->promise());
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     Value onFinally = argv[0];
     Value arguments[] = { onFinally, onFinally };
@@ -408,10 +430,13 @@ static Value builtinPromiseFinally(ExecutionState& state, Value thisValue, size_
 static Value builtinPromiseThen(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     auto strings = &state.context()->staticStrings();
-    if (!thisValue.isObject() || !thisValue.asObject()->isPromiseObject())
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->then.string(), "%s: not a Promise object");
+    if (!thisValue.isObject() || !thisValue.asObject()->isPromiseObject()) {
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->then.string(), "%s: not a Promise object");
+    }
     Value C = thisValue.asObject()->speciesConstructor(state, state.context()->globalObject()->promise());
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     PromiseReaction::Capability promiseCapability = PromiseObject::newPromiseCapability(state, C.asObject(), thisValue.asObject()->asPromiseObject());
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return thisValue.asObject()->asPromiseObject()->then(state, argv[0], argv[1], promiseCapability).value();
 }
 
@@ -452,6 +477,7 @@ static Value performPromiseAllSettled(ExecutionState& state, IteratorRecord* ite
                 Value valuesArray = ArrayObject::createArrayFromList(state, *values);
                 // Perform ? Call(resultCapability.[[Resolve]], undefined, « valuesArray »).
                 Object::call(state, resultCapability.m_resolveFunction, Value(), 1, &valuesArray);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
             // Return resultCapability.[[Promise]].
             return resultCapability.m_promise;
@@ -473,6 +499,7 @@ static Value performPromiseAllSettled(ExecutionState& state, IteratorRecord* ite
         // Let nextPromise be ? Call(promiseResolve, constructor, « nextValue »).
         Value nextValueArgv = nextValue;
         Value nextPromise = Object::call(state, promiseResolve, constructor, 1, &nextValueArgv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let steps be the algorithm steps defined in Promise.allSettled Resolve Element Functions.
         // Let resolveElement be ! CreateBuiltinFunction(steps, « [[AlreadyCalled]], [[Index]], [[Values]], [[Capability]], [[RemainingElements]] »).
         // Let alreadyCalled be the Record { [[Value]]: false }.
@@ -510,6 +537,7 @@ static Value performPromiseAllSettled(ExecutionState& state, IteratorRecord* ite
         // Perform ? Invoke(nextPromise, "then", « resolveElement, rejectElement »).
         Value argv[2] = { resolveElement, rejectElement };
         Object::call(state, Object::getMethod(state, nextPromise, state.context()->staticStrings().then), nextPromise, 2, argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Set index to index + 1.
         index++;
     }
@@ -523,11 +551,12 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
     // Let C be the this value.
     // If Type(C) is not Object, throw a TypeError exception.
     if (!thisValue.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "this value of allSettled is not Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "this value of allSettled is not Object");
     }
     Object* C = thisValue.asObject();
     // Let promiseCapability be ? NewPromiseCapability(C).
     auto promiseCapability = PromiseObject::newPromiseCapability(state, C);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let promiseResolve be GetPromiseResolve(C).
     Value promiseResolve;
     try {
@@ -537,6 +566,7 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -546,11 +576,13 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
     IteratorRecord* iteratorRecord;
     try {
         iteratorRecord = IteratorObject::getIterator(state, argv[0]);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& v) {
         Value thrownValue = v;
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -559,6 +591,7 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
     // Let result be PerformPromiseAllSettled(iteratorRecord, C, promiseCapability).
     try {
         result = performPromiseAllSettled(state, iteratorRecord, C, promiseCapability, promiseResolve);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& v) {
         Value exceptionValue = v;
         // If result is an abrupt completion,
@@ -566,11 +599,13 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
         if (!iteratorRecord->m_done) {
             try {
                 result = IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             } catch (const Value& v) {
                 // IfAbruptRejectPromise(result, promiseCapability).
                 // If value is an abrupt completion,
                 // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
                 Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &exceptionValue);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
                 // Return capability.[[Promise]].
                 return promiseCapability.m_promise;
             }
@@ -579,6 +614,7 @@ static Value builtinPromiseAllSettled(ExecutionState& state, Value thisValue, si
             // If value is an abrupt completion,
             // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
             Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &exceptionValue);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Return capability.[[Promise]].
             return promiseCapability.m_promise;
         }
@@ -626,6 +662,7 @@ static Value performPromiseAny(ExecutionState& state, IteratorRecord* iteratorRe
                 error->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, String::fromASCII("errors")),
                                                         ObjectPropertyDescriptor(Object::createArrayFromList(state, *errors),
                                                                                  (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+                RETURN_VALUE_IF_PENDING_EXCEPTION
                 // Return ThrowCompletion(error).
                 throw Value(error);
             }
@@ -648,6 +685,7 @@ static Value performPromiseAny(ExecutionState& state, IteratorRecord* iteratorRe
         // Let nextPromise be ? Call(promiseResolve, constructor, « nextValue »).
         Value argv = nextValue;
         Value nextPromise = Object::call(state, promiseResolve, constructor, 1, &argv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let steps be the algorithm steps defined in Promise.any Reject Element Functions.
         // Let rejectElement be ! CreateBuiltinFunction(steps, « [[AlreadyCalled]], [[Index]], [[Errors]], [[Capability]], [[RemainingElements]] »).
         ExtendedNativeFunctionObject* rejectElement = new ExtendedNativeFunctionObjectImpl<6>(state, NativeFunctionInfo(AtomicString(), PromiseObject::promiseAnyRejectElementFunction, 1, NativeFunctionInfo::Strict));
@@ -670,6 +708,7 @@ static Value performPromiseAny(ExecutionState& state, IteratorRecord* iteratorRe
         Object* nextPromiseObject = nextPromise.toObject(state);
         Value argv2[] = { Value(resultCapability.m_resolveFunction), Value(rejectElement) };
         Object::call(state, nextPromiseObject->get(state, strings->then).value(state, nextPromiseObject), nextPromiseObject, 2, argv2);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Set index to index + 1.
         index++;
     }
@@ -684,12 +723,13 @@ static Value builtinPromiseAny(ExecutionState& state, Value thisValue, size_t ar
     // Let C be the this value.
     // If Type(C) is not Object, throw a TypeError exception.
     if (!thisValue.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->all.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Promise.string(), false, strings->all.string(), ErrorObject::Messages::GlobalObject_ThisNotObject);
     }
     Object* C = thisValue.asObject();
 
     // Let promiseCapability be NewPromiseCapability(C).
     PromiseReaction::Capability promiseCapability = PromiseObject::newPromiseCapability(state, C);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let promiseResolve be GetPromiseResolve(C).
     // IfAbruptRejectPromise(promiseResolve, promiseCapability).
     Value promiseResolve;
@@ -700,6 +740,7 @@ static Value builtinPromiseAny(ExecutionState& state, Value thisValue, size_t ar
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -710,11 +751,13 @@ static Value builtinPromiseAny(ExecutionState& state, Value thisValue, size_t ar
     IteratorRecord* iteratorRecord = nullptr;
     try {
         iteratorRecord = IteratorObject::getIterator(state, iterable);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } catch (const Value& v) {
         Value thrownValue = v;
         // If value is an abrupt completion,
         // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return capability.[[Promise]].
         return promiseCapability.m_promise;
     }
@@ -730,12 +773,14 @@ static Value builtinPromiseAny(ExecutionState& state, Value thisValue, size_t ar
         try {
             if (!iteratorRecord->m_done) {
                 IteratorObject::iteratorClose(state, iteratorRecord, thrownValue, true);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
         } catch (const Value& v) {
             thrownValue = v;
         }
         // IfAbruptRejectPromise(result, promiseCapability).
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
     // Return Completion(result).

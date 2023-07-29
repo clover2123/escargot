@@ -39,11 +39,12 @@ static Value builtinReflectApply(ExecutionState& state, Value thisValue, size_t 
 
     // 1. If IsCallable(target) is false, throw a TypeError exception.
     if (!target.isObject() || !target.asObject()->isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: calling a not-callable target in apply function is forbidden");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: calling a not-callable target in apply function is forbidden");
     }
 
     // 2. Let args be CreateListFromArrayLike(argumentsList).
     auto args = Object::createListFromArrayLike(state, argList);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 5. Return Call(target, thisArgument, args).
     return Object::call(state, target, thisArgument, args.size(), args.data());
@@ -59,17 +60,18 @@ static Value builtinReflectConstruct(ExecutionState& state, Value thisValue, siz
 
     // 1. If IsConstructor(target) is false, throw a TypeError exception.
     if (!target.isConstructor()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.construct should has a construct method");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.construct should has a construct method");
     }
 
     // 2. If newTarget is not present, let newTarget be target.
     // 3. Else, if IsConstructor(newTarget) is false, throw a TypeError exception.
     if (!newTargetArg.isConstructor()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The new target of Reflect.construct should be a constructor");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The new target of Reflect.construct should be a constructor");
     }
 
     // 4. Let args be CreateListFromArrayLike(argumentsList).
     auto args = Object::createListFromArrayLike(state, argList);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // 6. Return Construct(target, args, newTarget).
     return Object::construct(state, target, args.size(), args.data(), newTargetArg.asObject());
 }
@@ -82,7 +84,7 @@ static Value builtinReflectDefineProperty(ExecutionState& state, Value thisValue
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.defineProperty should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.defineProperty should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -103,7 +105,7 @@ static Value builtinReflectDeleteProperty(ExecutionState& state, Value thisValue
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.deleteProperty should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.deleteProperty should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -121,7 +123,7 @@ static Value builtinReflectGet(ExecutionState& state, Value thisValue, size_t ar
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.get should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.get should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -143,7 +145,7 @@ static Value builtinReflectGetOwnPropertyDescriptor(ExecutionState& state, Value
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.getOwnPropertyDescriptor should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.getOwnPropertyDescriptor should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -164,7 +166,7 @@ static Value builtinReflectGetPrototypeOf(ExecutionState& state, Value thisValue
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.getPrototypeOf should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.getPrototypeOf should be an Object");
     }
 
     // 2. Return target.[[GetPrototypeOf]]().
@@ -179,7 +181,7 @@ static Value builtinReflectHas(ExecutionState& state, Value thisValue, size_t ar
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.has should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.has should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -197,7 +199,7 @@ static Value builtinReflectIsExtensible(ExecutionState& state, Value thisValue, 
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.isExtensible should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.isExtensible should be an Object");
     }
 
     // 2. Return target.[[IsExtensible]]().
@@ -212,7 +214,7 @@ static Value builtinReflectPreventExtensions(ExecutionState& state, Value thisVa
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.preventExtension should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.preventExtension should be an Object");
     }
 
     // 2. Return target.[[PreventExtensions]]().
@@ -227,7 +229,7 @@ static Value builtinReflectOwnKeys(ExecutionState& state, Value thisValue, size_
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.preventExtension should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.preventExtension should be an Object");
     }
     // 2. Let keys be target.[[OwnPropertyKeys]]().
     // 3. ReturnIfAbrupt(keys).
@@ -245,7 +247,7 @@ static Value builtinReflectSet(ExecutionState& state, Value thisValue, size_t ar
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.set should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.set should be an Object");
     }
 
     // 2. Let key be ToPropertyKey(propertyKey).
@@ -268,12 +270,12 @@ static Value builtinReflectSetPrototypeOf(ExecutionState& state, Value thisValue
 
     // 1. If Type(target) is not Object, throw a TypeError exception.
     if (!target.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.setPrototypeOf should be an Object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The target of Reflect.setPrototypeOf should be an Object");
     }
 
     // 2. If Type(proto) is not Object and proto is not null, throw a TypeError exception
     if (!proto.isObject() && !proto.isNull()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The proto of Reflect.setPrototypeOf should be an Object or Null");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Reflect.string(), false, String::emptyString, "%s: The proto of Reflect.setPrototypeOf should be an Object or Null");
     }
 
     // 3. Return target.[[SetPrototypeOf]](proto).

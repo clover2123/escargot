@@ -43,7 +43,7 @@ static Value builtinObject__proto__Setter(ExecutionState& state, Value thisValue
         return Value();
     }
     if (!thisObject->setPrototype(state, value)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "can't set prototype of this object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "can't set prototype of this object");
     }
     return Value();
 }
@@ -82,7 +82,7 @@ static Value builtinObjectPreventExtensions(ExecutionState& state, Value thisVal
     }
     Object* o = argv[0].asObject();
     if (!o->preventExtensions(state)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().preventExtensions.string(), "PreventExtensions is false");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().preventExtensions.string(), "PreventExtensions is false");
     }
     return o;
 }
@@ -101,6 +101,7 @@ static Value builtinObjectToString(ExecutionState& state, Value thisValue, size_
 
     // check isArray first
     bool isArray = thisObject->isArray(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     Value toStringTag = thisObject->get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag)).value(state, thisObject);
     if (toStringTag.isString()) {
@@ -174,7 +175,7 @@ static Value objectDefineProperties(ExecutionState& state, Value object, Value p
     const StaticStrings* strings = &state.context()->staticStrings();
 
     if (!object.isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, strings->Object.string(), false, strings->defineProperty.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, strings->Object.string(), false, strings->defineProperty.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObject);
     }
 
     Object* O = object.asObject();
@@ -195,7 +196,7 @@ static Value objectDefineProperties(ExecutionState& state, Value object, Value p
             // Let descObj be ? Get(props, nextKey).
             Value descVal = propDesc.value(state, props);
             if (!descVal.isObject()) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().defineProperty.string(), ErrorObject::Messages::GlobalObject_DescriptorNotObject);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().defineProperty.string(), ErrorObject::Messages::GlobalObject_DescriptorNotObject);
             }
 
             // Let desc be ? ToPropertyDescriptor(descObj).
@@ -211,6 +212,7 @@ static Value objectDefineProperties(ExecutionState& state, Value object, Value p
         // Let desc be the second element of pair.
         // Perform ? DefinePropertyOrThrow(O, P, desc).
         O->defineOwnPropertyThrowsException(state, it.first, it.second);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     return O;
@@ -219,7 +221,7 @@ static Value objectDefineProperties(ExecutionState& state, Value object, Value p
 static Value builtinObjectCreate(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!argv[0].isObject() && !argv[0].isNull())
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().create.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObjectAndNotNull);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().create.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObjectAndNotNull);
     Object* obj;
     if (argv[0].isNull()) {
         obj = new Object(state, Object::PrototypeIsNull);
@@ -243,7 +245,7 @@ static Value builtinObjectDefineProperty(ExecutionState& state, Value thisValue,
     // Object.defineProperty ( O, P, Attributes )
     // If Type(O) is not Object, throw a TypeError exception.
     if (!argv[0].isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().defineProperty.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObject);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().defineProperty.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotObject);
     }
     Object* O = argv[0].asObject();
 
@@ -252,12 +254,13 @@ static Value builtinObjectDefineProperty(ExecutionState& state, Value thisValue,
 
     // Let desc be ToPropertyDescriptor(Attributes).
     if (!argv[2].isObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Property description must be an object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "Property description must be an object");
     }
 
     ObjectPropertyDescriptor desc(state, argv[2].asObject());
 
     O->defineOwnPropertyThrowsException(state, key, desc);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return O;
 }
 
@@ -331,13 +334,13 @@ static Value builtinObjectSetPrototypeOf(ExecutionState& state, Value thisValue,
     // 1. Let O be RequireObjectCoercible(O).
     // 2. ReturnIfAbrupt(O).
     if (object.isUndefinedOrNull()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "");
         return Value();
     }
 
     // 3. If Type(proto) is neither Object nor Null, throw a TypeError exception.
     if (!proto.isObject() && !proto.isNull()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "");
         return Value();
     }
 
@@ -352,7 +355,7 @@ static Value builtinObjectSetPrototypeOf(ExecutionState& state, Value thisValue,
 
     // 7. If status is false, throw a TypeError exception.
     if (!status) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "can't set prototype of this object");
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().setPrototypeOf.string(), "can't set prototype of this object");
         return Value();
     }
 
@@ -371,7 +374,7 @@ static Value builtinObjectFreeze(ExecutionState& state, Value thisValue, size_t 
     // Let status be ? SetIntegrityLevel(O, frozen).
     // If status is false, throw a TypeError exception.
     if (!Object::setIntegrityLevel(state, O, false)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().freeze.string(), ErrorObject::Messages::GlobalObject_IllegalFirstArgument);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().freeze.string(), ErrorObject::Messages::GlobalObject_IllegalFirstArgument);
     }
 
     // Return O.
@@ -381,12 +384,13 @@ static Value builtinObjectFreeze(ExecutionState& state, Value thisValue, size_t 
 static Value builtinObjectFromEntries(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (argv[0].isUndefinedOrNull()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().object.string(), true, state.context()->staticStrings().fromEntries.string(), ErrorObject::Messages::GlobalObject_ThisUndefinedOrNull);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().object.string(), true, state.context()->staticStrings().fromEntries.string(), ErrorObject::Messages::GlobalObject_ThisUndefinedOrNull);
     }
     Value iterable = argv[0];
     Object* obj = new Object(state);
 
     auto iteratorRecord = IteratorObject::getIterator(state, iterable);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     while (true) {
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
         if (!next.hasValue()) {
@@ -410,6 +414,7 @@ static Value builtinObjectFromEntries(ExecutionState& state, Value thisValue, si
             ObjectPropertyName key(state, k);
             obj->defineOwnPropertyThrowsException(state, key,
                                                   ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         } catch (const Value& v) {
             // we should save thrown value bdwgc cannot track thrown value
             Value exceptionValue = v;
@@ -539,7 +544,7 @@ static Value builtinObjectSeal(ExecutionState& state, Value thisValue, size_t ar
     // Let status be ? SetIntegrityLevel(O, sealed).
     // If status is false, throw a TypeError exception.
     if (!Object::setIntegrityLevel(state, O, true)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().seal.string(), ErrorObject::Messages::GlobalObject_IllegalFirstArgument);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Object.string(), false, state.context()->staticStrings().seal.string(), ErrorObject::Messages::GlobalObject_IllegalFirstArgument);
     }
 
     // Return O.
@@ -585,6 +590,7 @@ static Value builtinObjectAssign(ExecutionState& state, Value thisValue, size_t 
                 }
                 // Perform ? Set(to, nextKey, propValue, true).
                 to->setThrowsException(state, ObjectPropertyName(state, nextKey), propValue, to);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
         }
     }
@@ -642,7 +648,7 @@ static Value builtinDefineGetter(ExecutionState& state, Value thisValue, size_t 
     Object* O = thisValue.toObject(state);
     // If IsCallable(getter) is false, throw a TypeError exception.
     if (!argv[1].isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, String::emptyString, true, state.context()->staticStrings().__defineGetter__.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, String::emptyString, true, state.context()->staticStrings().__defineGetter__.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // Let desc be PropertyDescriptor{[[Get]]: getter, [[Enumerable]]: true, [[Configurable]]: true}.
     ObjectPropertyDescriptor desc(JSGetterSetter(argv[1].asObject(), Value(Value::EmptyValue)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::EnumerablePresent | ObjectPropertyDescriptor::ConfigurablePresent));
@@ -655,6 +661,7 @@ static Value builtinDefineGetter(ExecutionState& state, Value thisValue, size_t 
     O->defineOwnProperty(state, key, desc);
 #else
     O->defineOwnPropertyThrowsException(state, key, desc);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 #endif
 
     // Return undefined.
@@ -668,7 +675,7 @@ static Value builtinDefineSetter(ExecutionState& state, Value thisValue, size_t 
     Object* O = thisValue.toObject(state);
     // If IsCallable(getter) is false, throw a TypeError exception.
     if (!argv[1].isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, String::emptyString, true, state.context()->staticStrings().__defineSetter__.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, String::emptyString, true, state.context()->staticStrings().__defineSetter__.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // Let desc be PropertyDescriptor{[[Get]]: getter, [[Enumerable]]: true, [[Configurable]]: true}.
     ObjectPropertyDescriptor desc(JSGetterSetter(Value(Value::EmptyValue), argv[1].asObject()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::EnumerablePresent | ObjectPropertyDescriptor::ConfigurablePresent));
@@ -681,6 +688,7 @@ static Value builtinDefineSetter(ExecutionState& state, Value thisValue, size_t 
     O->defineOwnProperty(state, key, desc);
 #else
     O->defineOwnPropertyThrowsException(state, key, desc);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 #endif
 
     // Return undefined.

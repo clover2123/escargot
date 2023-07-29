@@ -43,7 +43,7 @@ Value builtinArrayConstructor(ExecutionState& state, Value thisValue, size_t arg
             if (val.equalsTo(state, Value(val.toUint32(state)))) {
                 size = val.toNumber(state);
             } else {
-                ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
             }
         } else {
             size = 1;
@@ -80,9 +80,9 @@ Value builtinArrayConstructor(ExecutionState& state, Value thisValue, size_t arg
     return array;
 }
 
-#define CHECK_ARRAY_LENGTH(COND)                                                                                             \
-    if (COND) {                                                                                                              \
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength); \
+#define CHECK_ARRAY_LENGTH(COND)                                                                                               \
+    if (COND) {                                                                                                                \
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength); \
     }
 
 static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, const int64_t length)
@@ -105,6 +105,7 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
             Context* thisRealm = state.context();
             // Let realmC be GetFunctionRealm(C).
             Context* realmC = C.asObject()->getFunctionRealm(state);
+            RETURN_NULL_IF_PENDING_EXCEPTION
 
             // ReturnIfAbrupt(realmC).
             // If thisRealm and realmC are not the same Realm Record, then
@@ -124,6 +125,7 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
             }
         }
     }
+    RETURN_NULL_IF_PENDING_EXCEPTION
 
     // If C is undefined, return ArrayCreate(length).
     if (C.isUndefined()) {
@@ -131,7 +133,7 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
     }
     // If IsConstructor(C) is false, throw a TypeError exception.
     if (!C.isConstructor()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_ThisNotConstructor);
+        THROW_BUILTIN_ERROR_RETURN_NULL(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_ThisNotConstructor);
     }
     // Return Construct(C, <<length>>).
     Value argv[1] = { Value(length) };
@@ -158,6 +160,7 @@ static int64_t flattenIntoArray(ExecutionState& state, Value target, Value sourc
                 Value args[] = { element, Value(sourceIndex), source };
                 ASSERT(!thisArg.isEmpty() && depth == 1);
                 element = Object::call(state, mappedValue, thisArg, 3, args);
+                RETURN_ZERO_IF_PENDING_EXCEPTION
             }
             if (depth > 0 && element.isObject() && element.asObject()->isArray(state)) {
                 int64_t elementLen = element.asObject()->length(state);
@@ -165,12 +168,13 @@ static int64_t flattenIntoArray(ExecutionState& state, Value target, Value sourc
 
             } else {
                 if (targetIndex >= std::numeric_limits<int64_t>::max()) {
-                    ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "invalid index");
+                    THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::TypeError, "invalid index");
                 }
                 target.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, targetIndex),
                                                                     ObjectPropertyDescriptor(element, ObjectPropertyDescriptor::AllPresent));
                 targetIndex++;
             }
+            RETURN_ZERO_IF_PENDING_EXCEPTION
         }
         sourceIndex++;
     }
@@ -204,7 +208,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
     if (!mapfn.isUndefined()) {
         // If IsCallable(mapfn) is false, throw a TypeError exception.
         if (!mapfn.isCallable()) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "argument map function should be undefined or function");
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "argument map function should be undefined or function");
         }
         // If thisArg was supplied, let T be thisArg; else let T be undefined.
         T = thisArg;
@@ -214,6 +218,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
 
     // Let usingIterator be ? GetMethod(items, @@iterator).
     Value usingIterator = Object::getMethod(state, items, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If usingIterator is not undefined, then
     if (!usingIterator.isUndefined()) {
         Object* A;
@@ -221,12 +226,14 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
         if (C.isConstructor()) {
             // Let A be ? Construct(C).
             A = Object::construct(state, C, 0, nullptr).toObject(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         } else {
             // Let A be ArrayCreate(0).
             A = new ArrayObject(state);
         }
         // Let iteratorRecord be ? GetIterator(items, sync, usingIterator).
         IteratorRecord* iteratorRecord = IteratorObject::getIterator(state, items, true, usingIterator);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         // Let k be 0.
         int64_t k = 0;
@@ -247,6 +254,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
             if (!next.hasValue()) {
                 // Perform ? Set(A, "length", k, true).
                 A->setThrowsException(state, ObjectPropertyName(state, state.context()->staticStrings().length), Value(k), A);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
                 // Return A.
                 return A;
             }
@@ -261,6 +269,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
                 Value argv[] = { nextValue, Value(k) };
                 try {
                     mappedValue = Object::call(state, mapfn, T, 2, argv);
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                 } catch (const Value& v) {
                     Value exceptionValue = v;
                     return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
@@ -272,6 +281,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
             try {
                 // Let defineStatus be CreateDataPropertyOrThrow(A, Pk, mappedValue).
                 A->defineOwnPropertyThrowsException(state, pk, ObjectPropertyDescriptor(mappedValue, ObjectPropertyDescriptor::AllPresent));
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             } catch (const Value& v) {
                 // If defineStatus is an abrupt completion, return ? IteratorClose(iteratorRecord, defineStatus).
                 Value exceptionValue = v;
@@ -292,6 +302,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
         // Let A be ? Construct(C, « len »).
         Value vlen(len);
         A = Object::construct(state, C, 1, &vlen).toObject(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         // Else,
         // Let A be ? ArrayCreate(len).
@@ -312,17 +323,20 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
             // Let mappedValue be ? Call(mapfn, T, « kValue, k »).
             Value argv[] = { kValue, Value(k) };
             mappedValue = Object::call(state, mapfn, T, 2, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         } else {
             // Else, let mappedValue be kValue.
             mappedValue = kValue;
         }
         // Perform ? CreateDataPropertyOrThrow(A, Pk, mappedValue).
         A->defineOwnPropertyThrowsException(state, Pk, ObjectPropertyDescriptor(mappedValue, ObjectPropertyDescriptor::AllPresent));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Increase k by 1.
         k++;
     }
     // Perform ? Set(A, "length", len, true).
     A->setThrowsException(state, ObjectPropertyName(state, state.context()->staticStrings().length), Value(len), A);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Return A.
     return A;
 }
@@ -337,6 +351,7 @@ static Value builtinArrayOf(ExecutionState& state, Value thisValue, size_t argc,
     if (C.isConstructor()) {
         Value arg[1] = { Value(len) };
         A = Object::construct(state, C, 1, arg).toObject(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         A = new ArrayObject(state, static_cast<uint64_t>(len));
     }
@@ -346,9 +361,11 @@ static Value builtinArrayOf(ExecutionState& state, Value thisValue, size_t argc,
         Value kValue = argv[k];
         ObjectPropertyName Pk(state, k);
         A->defineOwnPropertyThrowsException(state, Pk, ObjectPropertyDescriptor(kValue, ObjectPropertyDescriptor::AllPresent));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         k++;
     }
     A->setThrowsException(state, ObjectPropertyName(state, state.context()->staticStrings().length), Value(len), A);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     return A;
 }
@@ -377,7 +394,7 @@ static Value builtinArrayJoin(ExecutionState& state, Value thisValue, size_t arg
     while (curIndex < len) {
         if (curIndex != 0 && sep->length() > 0) {
             if (static_cast<double>(builder.contentLength()) > static_cast<double>(STRING_MAXIMUM_LENGTH - (curIndex - prevIndex - 1) * (int64_t)sep->length())) {
-                ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::String_InvalidStringLength);
+                THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::String_InvalidStringLength);
             }
             while (curIndex - prevIndex > 1) {
                 builder.appendString(sep);
@@ -433,7 +450,7 @@ static Value builtinArrayJoin(ExecutionState& state, Value thisValue, size_t arg
     }
     if (sep->length() > 0) {
         if (static_cast<double>(builder.contentLength()) > static_cast<double>(STRING_MAXIMUM_LENGTH - (curIndex - prevIndex - 1) * (int64_t)sep->length())) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::String_InvalidStringLength);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::String_InvalidStringLength);
         }
         while (curIndex - prevIndex > 1) {
             builder.appendString(sep);
@@ -492,6 +509,7 @@ static Value builtinArrayReverse(ExecutionState& state, Value thisValue, size_t 
             lower = lowerCandidate;
             continue;
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         lower++;
     }
 
@@ -503,7 +521,7 @@ static Value builtinArraySort(ExecutionState& state, Value thisValue, size_t arg
     RESOLVE_THIS_BINDING_TO_OBJECT(thisObject, Array, sort);
     Value cmpfn = argv[0];
     if (!cmpfn.isUndefined() && !cmpfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().sort.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().sort.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotCallable);
     }
     bool defaultSort = (argc == 0) || cmpfn.isUndefined();
 
@@ -525,6 +543,7 @@ static Value builtinArraySort(ExecutionState& state, Value thisValue, size_t arg
             return *vala < *valb;
         } else {
             Value ret = Object::call(state, cmpfn, Value(), 2, arg);
+            ASSERT(!state.hasPendingException());
             return (ret.toNumber(state) < 0);
         } });
     return thisObject;
@@ -593,12 +612,14 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
             ObjectPropertyName from(state, Value(actualStart + k));
             A->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, k),
                                                 ObjectPropertyDescriptor(fromValue.value(state, from, O), ObjectPropertyDescriptor::AllPresent));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
         // Increment k by 1.
         k++;
     }
     // Let setStatus be Set(A, "length", actualDeleteCount, true).
     A->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(actualDeleteCount), A);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let items be an internal List whose elements are, in left to right order, the portion of the actual argument list starting with item1. The list will be empty if no such items are present.
     Value* items = nullptr;
@@ -632,6 +653,7 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
                 // Call the [[Delete]] internal method of O with arguments to and true.
                 O->deleteOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(to)));
             }
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             k++;
         }
         // delete [len - deleteCnt + itemCount, len)
@@ -641,6 +663,7 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
         while (k > len - actualDeleteCount + itemCount) {
             // Call the [[Delete]] internal method of O with arguments ToString(k–1) and true.
             O->deleteOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(k - 1)));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Decrease k by 1.
             k--;
         }
@@ -669,6 +692,7 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
                 ObjectPropertyName to(state, k + itemCount - 1);
                 O->deleteOwnPropertyThrowsException(state, to);
             }
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Decrease k by 1.
             k--;
         }
@@ -684,11 +708,13 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
         Value E = items[itemsIndex++];
         // Call the [[Put]] internal method of O with arguments ToString(k), E, and true.
         O->setIndexedPropertyThrowsException(state, Value(k), E);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Increase k by 1.
         k++;
     }
 
     O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(len - actualDeleteCount + itemCount), O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return A;
 }
 
@@ -726,6 +752,7 @@ static Value builtinArrayConcat(ExecutionState& state, Value thisValue, size_t a
                         Object::nextIndexForward(state, arr, k, len, result);
                         k = result;
                     }
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                 }
 
                 n += len;
@@ -740,6 +767,7 @@ static Value builtinArrayConcat(ExecutionState& state, Value thisValue, size_t a
         } else {
             obj->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(n++)), ObjectPropertyDescriptor(argi, ObjectPropertyDescriptor::AllPresent));
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     return obj;
@@ -772,12 +800,14 @@ static Value builtinArraySlice(ExecutionState& state, Value thisValue, size_t ar
             n += result - k;
             k = result;
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
     if (finalEnd - kStart > 0) {
         ArrayObject->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(finalEnd - kStart), Value(ArrayObject));
     } else {
         ArrayObject->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(0), Value(ArrayObject));
     }
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return ArrayObject;
 }
 
@@ -788,8 +818,8 @@ static Value builtinArrayForEach(ExecutionState& state, Value thisValue, size_t 
 
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().forEach.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
@@ -805,6 +835,7 @@ static Value builtinArrayForEach(ExecutionState& state, Value thisValue, size_t 
             Value kValue = res.value(state, ObjectPropertyName(state, k), thisObject);
             Value args[3] = { kValue, Pk, thisObject };
             Object::call(state, callbackfn, T, 3, args);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             k++;
         } else {
             int64_t result;
@@ -962,8 +993,8 @@ static Value builtinArrayEvery(ExecutionState& state, Value thisValue, size_t ar
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
@@ -986,6 +1017,7 @@ static Value builtinArrayEvery(ExecutionState& state, Value thisValue, size_t ar
             // Let testResult be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value args[] = { kValue, Value(k), O };
             Value testResult = Object::call(state, callbackfn, T, 3, args);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             if (!testResult.toBoolean(state)) {
                 return Value(false);
@@ -1030,6 +1062,7 @@ static Value builtinArrayFill(ExecutionState& state, Value thisValue, size_t arg
     Value value = argv[0];
     while (k < fin) {
         O->setIndexedPropertyThrowsException(state, Value(k), value);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         k++;
     }
     // return O.
@@ -1048,8 +1081,8 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
@@ -1059,6 +1092,7 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
 
     // Let A be ArraySpeciesCreate(O, 0).
     Object* A = arraySpeciesCreate(state, O, 0);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let k be 0.
     int64_t k = 0;
@@ -1077,6 +1111,7 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
             // Let selected be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value v[] = { kValue, Value(k), O };
             Value selected = Object::call(state, callbackfn, T, 3, v);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // If ToBoolean(selected) is true, then
             if (selected.toBoolean(state)) {
@@ -1093,6 +1128,7 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
             Object::nextIndexForward(state, O, k, len, result);
             k = result;
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Increase k by 1.
     }
 
@@ -1111,8 +1147,8 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().every.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
     Value T;
@@ -1121,6 +1157,7 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
 
     // Let A be ArraySpeciesCreate(O, len).
     Object* A = arraySpeciesCreate(state, O, len);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let k be 0.
     int64_t k = 0;
@@ -1138,6 +1175,7 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
             // Let mappedValue be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value v[] = { kValue, Value(k), O };
             Value mappedValue = Object::call(state, callbackfn, T, 3, v);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Let status be CreateDataPropertyOrThrow (A, Pk, mappedValue).
             A->defineOwnPropertyThrowsException(state, Pk, ObjectPropertyDescriptor(mappedValue, ObjectPropertyDescriptor::AllPresent));
             k++;
@@ -1146,6 +1184,7 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
             Object::nextIndexForward(state, O, k, len, result);
             k = result;
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Increase k by 1.
     }
 
@@ -1163,8 +1202,8 @@ static Value builtinArraySome(ExecutionState& state, Value thisValue, size_t arg
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().some.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().some.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     Value T;
     // If thisArg was supplied, let T be thisArg; else let T be undefined.
@@ -1187,6 +1226,7 @@ static Value builtinArraySome(ExecutionState& state, Value thisValue, size_t arg
             // Let testResult be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value argv[] = { kValue, Value(k), O };
             Value testResult = Object::call(state, callbackfn, T, 3, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // If ToBoolean(testResult) is true, return true.
             if (testResult.toBoolean(state)) {
                 return Value(true);
@@ -1294,6 +1334,7 @@ static Value builtinArrayToLocaleString(ExecutionState& state, Value thisValue, 
             // Let S be ? ToString(? Invoke(nextElement, "toLocaleString", « locales, options »)).
             Value func = nextElement.toObject(state)->get(state, state.context()->staticStrings().toLocaleString).value(state, nextElement);
             String* S = Object::call(state, func, nextElement, argc, argv).toString(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Set R to the string-concatenation of R and S.
             StringBuilder builder;
             builder.appendString(R);
@@ -1320,10 +1361,10 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
     }
 
     if (!callbackfn.isCallable()) // 4
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
 
     if (len == 0 && (initialValue.isUndefined() || initialValue.isEmpty())) // 5
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_ReduceError);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_ReduceError);
 
     int64_t k = 0; // 6
     Value accumulator;
@@ -1339,7 +1380,7 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
             k++; // 8.b.iv
         }
         if (!kPresent)
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_ReduceError);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduce.string(), ErrorObject::Messages::GlobalObject_ReduceError);
     }
     while (k < len) { // 9
         ObjectHasPropertyResult kPresent = O->hasIndexedProperty(state, Value(k)); // 9.b
@@ -1348,6 +1389,7 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
             const int fnargc = 4;
             Value fnargs[] = { accumulator, kValue, Value(k), O };
             accumulator = Object::call(state, callbackfn, Value(), fnargc, fnargs);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             k++;
         } else {
             int64_t result;
@@ -1370,13 +1412,13 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
-                                       state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true,
+                                         state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // If len is 0 and initialValue is not present, throw a TypeError exception.
     if (len == 0 && argc < 2) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_ReduceError);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_ReduceError);
     }
 
     // Let k be len-1.
@@ -1411,7 +1453,7 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
         }
         // If kPresent is false, throw a TypeError exception.
         if (!kPresent) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_ReduceError);
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().reduceRight.string(), ErrorObject::Messages::GlobalObject_ReduceError);
         }
     }
 
@@ -1429,6 +1471,7 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
             // Let accumulator be the result of calling the [[Call]] internal method of callbackfn with undefined as the this value and argument list containing accumulator, kValue, k, and O.
             Value v[] = { accumulator, kValue, Value(k), O };
             accumulator = Object::call(state, callbackfn, Value(), 4, v);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
 
         // Decrease k by 1.
@@ -1454,6 +1497,7 @@ static Value builtinArrayPop(ExecutionState& state, Value thisValue, size_t argc
     if (len == 0) {
         // Call the [[Put]] internal method of O with arguments "length", 0, and true.
         O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(0), O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return undefined.
         return Value();
     } else {
@@ -1466,6 +1510,7 @@ static Value builtinArrayPop(ExecutionState& state, Value thisValue, size_t argc
         O->deleteOwnPropertyThrowsException(state, indx);
         // Call the [[Put]] internal method of O with arguments "length", indx, and true.
         O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(len - 1), O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return element.
         return element;
     }
@@ -1490,12 +1535,14 @@ static Value builtinArrayPush(ExecutionState& state, Value thisValue, size_t arg
     for (size_t i = 0; i < argc; i++) {
         // Call the [[Put]] internal method of O with arguments ToString(n), E, and true.
         O->setIndexedPropertyThrowsException(state, Value(n), argv[i]);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Increase n by 1.
         n++;
     }
 
     // Call the [[Put]] internal method of O with arguments "length", n, and true.
     O->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, state.context()->staticStrings().length), Value(n), O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Return n.
     return Value(n);
@@ -1512,7 +1559,9 @@ static Value builtinArrayFlat(ExecutionState& state, Value thisValue, size_t arg
         depthNum = argv[0].toInteger(state);
     }
     Object* A = arraySpeciesCreate(state, O, 0);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     flattenIntoArray(state, A, O, sourceLen, 0, depthNum);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     return A;
 }
@@ -1524,14 +1573,16 @@ static Value builtinArrayFlatMap(ExecutionState& state, Value thisValue, size_t 
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, flatMap);
     int64_t sourceLen = O->length(state);
     if (!argv[0].isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().flatMap.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().flatMap.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotCallable);
     }
     Value t;
     if (argc > 1) {
         t = argv[1];
     }
     Object* A = arraySpeciesCreate(state, O, 0);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     flattenIntoArray(state, A, O, sourceLen, 0, 1, argv[0], t);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return A;
 }
 
@@ -1546,6 +1597,7 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
     if (len == 0) {
         // Call the [[Put]] internal method of O with arguments "length", 0, and true.
         O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(0), O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Return undefined.
         return Value();
     }
@@ -1573,6 +1625,7 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
             // Call the [[Delete]] internal method of O with arguments to and true.
             O->deleteOwnPropertyThrowsException(state, to);
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         // Increase k by 1.
         if (fromPresent) {
@@ -1592,6 +1645,7 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
     O->deleteOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(len - 1)));
     // Call the [[Put]] internal method of O with arguments "length", (len–1) , and true.
     O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(len - 1), O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Return first.
     return first;
 }
@@ -1637,6 +1691,7 @@ static Value builtinArrayUnshift(ExecutionState& state, Value thisValue, size_t 
                 // Call the [[Delete]] internal method of O with arguments to, and true.
                 O->deleteOwnPropertyThrowsException(state, to);
             }
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             if (fromPresent) {
                 // Decrease k by 1.
@@ -1664,6 +1719,7 @@ static Value builtinArrayUnshift(ExecutionState& state, Value thisValue, size_t 
             Value E = items[j];
             // Call the [[Put]] internal method of O with arguments ToString(j), E, and true.
             O->setThrowsException(state, ObjectPropertyName(state, Value(j)), E, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Increase j by 1.
             j++;
         }
@@ -1671,6 +1727,7 @@ static Value builtinArrayUnshift(ExecutionState& state, Value thisValue, size_t 
 
     // Call the [[Put]] internal method of O with arguments "length", len+argCount, and true.
     O->setThrowsException(state, state.context()->staticStrings().length, Value(len + argCount), O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Return len+argCount.
     return Value(len + argCount);
@@ -1687,7 +1744,7 @@ static Value builtinArrayFind(ExecutionState& state, Value thisValue, size_t arg
     uint64_t len = O->length(state);
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().find.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().find.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // Let k be 0.
@@ -1700,6 +1757,7 @@ static Value builtinArrayFind(ExecutionState& state, Value thisValue, size_t arg
         // Let testResult be ToBoolean(? Call(predicate, thisArg, « kValue, k, O »)).
         Value v[] = { kValue, Value(k), O };
         bool testResult = Object::call(state, argv[0], thisArg, 3, v).toBoolean(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If testResult is true, return kValue.
         if (testResult) {
             return kValue;
@@ -1722,7 +1780,7 @@ static Value builtinArrayFindIndex(ExecutionState& state, Value thisValue, size_
     uint64_t len = O->length(state);
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
 
     // Let k be 0.
@@ -1735,6 +1793,7 @@ static Value builtinArrayFindIndex(ExecutionState& state, Value thisValue, size_
         // Let testResult be ToBoolean(? Call(predicate, thisArg, « kValue, k, O »)).
         Value v[] = { kValue, Value(k), O };
         bool testResult = Object::call(state, argv[0], thisArg, 3, v).toBoolean(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If testResult is true, return k.
         if (testResult) {
             return Value(k);
@@ -1797,6 +1856,7 @@ static Value builtinArrayCopyWithin(ExecutionState& state, Value thisValue, size
             // Let deleteStatus be DeletePropertyOrThrow(O, toKey).
             O->deleteOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(intTo)));
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let from be from + direction.
         intFrom += direction;
         // Let to be to + direction.
@@ -1829,7 +1889,7 @@ static Value builtinArrayEntries(ExecutionState& state, Value thisValue, size_t 
 static Value builtinArrayIteratorNext(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!thisValue.isObject() || !thisValue.asObject()->isArrayIteratorObject()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().ArrayIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().ArrayIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_CalledOnIncompatibleReceiver);
     }
 
     ArrayIteratorObject* iter = thisValue.asObject()->asIteratorObject()->asArrayIteratorObject();
@@ -1861,7 +1921,7 @@ static Value builtinArrayFindLast(ExecutionState& state, Value thisValue, size_t
     int64_t len = static_cast<int64_t>(O->length(state));
     // 3. If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLast.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLast.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // 4. Let k be len - 1.
     int64_t k = len - 1;
@@ -1875,6 +1935,7 @@ static Value builtinArrayFindLast(ExecutionState& state, Value thisValue, size_t
             kValue, Value(k), Value(O)
         };
         bool testResult = Object::call(state, predicate, thisArg, 3, predicateArgv).toBoolean(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // d. If testResult is true, return kValue.
         if (testResult) {
             return kValue;
@@ -1897,7 +1958,7 @@ static Value builtinArrayFindLastIndex(ExecutionState& state, Value thisValue, s
     int64_t len = static_cast<int64_t>(O->length(state));
     // 3. If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLastIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
+        THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLastIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
     }
     // 4. Let k be len - 1.
     int64_t k = len - 1;
@@ -1911,6 +1972,7 @@ static Value builtinArrayFindLastIndex(ExecutionState& state, Value thisValue, s
             kValue, Value(k), Value(O)
         };
         bool testResult = Object::call(state, predicate, thisArg, 3, predicateArgv).toBoolean(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // d. If testResult is true, return kValue.
         if (testResult) {
             return Value(k);
