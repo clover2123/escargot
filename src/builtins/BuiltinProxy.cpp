@@ -40,7 +40,9 @@ static Value builtinProxyConstructor(ExecutionState& state, Value thisValue, siz
     Value target = argv[0];
     Value handler = argv[1];
 
-    return ProxyObject::createProxy(state, target, handler);
+    ProxyObject* result = ProxyObject::createProxy(state, target, handler);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return result;
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-proxy-revocation-functions

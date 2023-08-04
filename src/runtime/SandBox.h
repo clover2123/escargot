@@ -80,13 +80,13 @@ public:
         }
     };
 
-    SandBoxResult run(const std::function<Value()>& scriptRunner); // for capsule script executing with try-catch
+    SandBoxResult run(const std::function<Value()>& scriptRunner, ExecutionState& state); // for capsule script executing with try-catch
     SandBoxResult run(Value (*runner)(ExecutionState&, void*), void* data);
 
     static bool createStackTrace(StackTraceDataVector& stackTraceDataVector, ExecutionState& state, bool stopAtPause = false);
 
     void throwException(ExecutionState& state, const Value& exception);
-    void rethrowPreviouslyCaughtException(ExecutionState& state, Value exception, const StackTraceDataVector& stackTraceDataVector);
+    void rethrowPreviouslyCaughtException(ExecutionState& state, Value exception, StackTraceDataVector&& stackTraceDataVector);
 
     StackTraceDataVector& stackTraceDataVector()
     {

@@ -62,7 +62,9 @@ static Value builtinBigIntConstructor(ExecutionState& state, Value thisValue, si
         return new BigInt((int64_t)numValue);
     } else {
         // Otherwise, return ? ToBigInt(value).
-        return argv[0].toBigInt(state);
+        BigInt* result = argv[0].toBigInt(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        return result;
     }
 }
 
@@ -70,6 +72,7 @@ static Value builtinBigIntAsUintN(ExecutionState& state, Value thisValue, size_t
 {
     // Let bits be ? ToIndex(bits).
     auto bits = argv[0].toIndex(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (bits == Value::InvalidIndexValue) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::CanNotConvertValueToIndex);
     }
@@ -93,6 +96,7 @@ static Value builtinBigIntAsIntN(ExecutionState& state, Value thisValue, size_t 
 {
     // Let bits be ? ToIndex(bits).
     auto bits = argv[0].toIndex(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (bits == Value::InvalidIndexValue) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::CanNotConvertValueToIndex);
     }
@@ -178,6 +182,7 @@ static Value builtinBigIntToLocaleString(ExecutionState& state, Value thisValue,
     ObjectGetResult toStrFuncGetResult = state.context()->globalObject()->bigIntProxyObject()->get(state, ObjectPropertyName(state.context()->staticStrings().toString));
     if (toStrFuncGetResult.hasValue()) {
         Value toStrFunc = toStrFuncGetResult.value(state, thisObject);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (toStrFunc.isCallable()) {
             // toLocaleString() ignores the first argument, unlike toString()
             Value result = Object::call(state, toStrFunc, thisObject, 0, argv);

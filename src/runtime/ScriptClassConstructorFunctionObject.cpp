@@ -61,6 +61,8 @@ ScriptClassConstructorFunctionObject::ScriptClassConstructorFunctionObject(Execu
 Value ScriptClassConstructorFunctionObject::call(ExecutionState& state, const Value& thisValue, const size_t argc, Value* argv)
 {
     ExecutionState newState(m_codeBlock->context(), &state, static_cast<LexicalEnvironment*>(nullptr), argc, argv, m_codeBlock->asInterpretedCodeBlock()->isStrict());
+    // set exception for upper state
+    state.setPendingException();
     THROW_BUILTIN_ERROR_RETURN_VALUE(newState, ErrorCode::TypeError, "Class constructor cannot be invoked without 'new'");
 }
 
@@ -134,6 +136,7 @@ Value ScriptClassConstructorFunctionObject::construct(ExecutionState& state, con
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget, [](ExecutionState& state, Context* constructorRealm) -> Object* {
             return constructorRealm->globalObject()->objectPrototype();
         });
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Set the [[Prototype]] internal slot of obj to proto.
         thisArgument = new Object(state, proto);
         // ReturnIfAbrupt(thisArgument).
@@ -151,8 +154,7 @@ Value ScriptClassConstructorFunctionObject::construct(ExecutionState& state, con
     // Return envRec.GetThisBinding().
     // -> perform at ScriptClassConstructorFunctionObjectReturnValueBinderWithConstruct
     return FunctionObjectProcessCallGenerator::processCall<ScriptClassConstructorFunctionObject, true, true, true, ScriptClassConstructorFunctionObjectThisValueBinder,
-                                                           ScriptClassConstructorFunctionObjectNewTargetBinderWithConstruct, ScriptClassConstructorFunctionObjectReturnValueBinderWithConstruct>(state, this, thisArgument, argc, argv, newTarget)
-        .asObject();
+                                                           ScriptClassConstructorFunctionObjectNewTargetBinderWithConstruct, ScriptClassConstructorFunctionObjectReturnValueBinderWithConstruct>(state, this, thisArgument, argc, argv, newTarget);
 }
 
 void ScriptClassConstructorFunctionObject::initInstanceFieldMembers(ExecutionState& state, Object* instance)
@@ -191,6 +193,7 @@ void ScriptClassConstructorFunctionObject::initInstanceFieldMembers(ExecutionSta
         case ScriptClassConstructorFunctionObject::PrivateFieldValue:
             if (!value.isUndefined()) {
                 value = value.asPointerValue()->asScriptVirtualArrowFunctionObject()->call(state, Value(instance), homeObject);
+                RETURN_IF_PENDING_EXCEPTION
             }
             break;
         default:

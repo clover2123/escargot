@@ -39,6 +39,7 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->setPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     SetObject* set = new SetObject(state, proto);
 
     // If iterable is not present, let iterable be undefined.
@@ -54,6 +55,7 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
 
     // Let adder be ? Get(set, "add").
     Value adder = set->get(state, ObjectPropertyName(state.context()->staticStrings().add)).value(state, set);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If IsCallable(adder) is false, throw a TypeError exception.
     if (!adder.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
@@ -66,21 +68,21 @@ static Value builtinSetConstructor(ExecutionState& state, Value thisValue, size_
     while (true) {
         // Let next be ? IteratorStep(iteratorRecord).
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If next is false, return set.
         if (!next.hasValue()) {
             return set;
         }
         // Let nextValue be ? IteratorValue(next).
         Value nextValue = IteratorObject::iteratorValue(state, next.value());
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         // Let status be Call(adder, set, « nextValue »).
-        try {
-            Value argv[1] = { nextValue };
-            Object::call(state, adder, set, 1, argv);
-            RETURN_VALUE_IF_PENDING_EXCEPTION
-        } catch (const Value& v) {
+        Value argv[1] = { nextValue };
+        Object::call(state, adder, set, 1, argv);
+        if (UNLIKELY(state.hasPendingException())) {
             // we should save thrown value bdwgc cannot track thrown value
-            Value exceptionValue = v;
+            Value exceptionValue = state.detachPendingException();
             // If status is an abrupt completion, return ? IteratorClose(iteratorRecord, status).
             return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
         }

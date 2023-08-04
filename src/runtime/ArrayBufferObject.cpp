@@ -33,6 +33,7 @@ ArrayBufferObject* ArrayBufferObject::allocateArrayBuffer(ExecutionState& state,
     Object* proto = Object::getPrototypeFromConstructor(state, constructor, [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->arrayBufferPrototype();
     });
+    RETURN_NULL_IF_PENDING_EXCEPTION
 
     if (UNLIKELY(byteLength >= ArrayBuffer::maxArrayBufferSize)) {
         THROW_BUILTIN_ERROR_RETURN_NULL(state, ErrorCode::RangeError, state.context()->staticStrings().ArrayBuffer.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_InvalidArrayBufferSize);

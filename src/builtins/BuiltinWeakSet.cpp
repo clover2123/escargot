@@ -37,6 +37,7 @@ static Value builtinWeakSetConstructor(ExecutionState& state, Value thisValue, s
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->weakSetPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     WeakSetObject* weakSet = new WeakSetObject(state, proto);
 
@@ -48,6 +49,7 @@ static Value builtinWeakSetConstructor(ExecutionState& state, Value thisValue, s
         return weakSet;
     }
     Value add = weakSet->get(state, ObjectPropertyName(state.context()->staticStrings().add)).value(state, weakSet);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (!add.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
     }
@@ -57,18 +59,18 @@ static Value builtinWeakSetConstructor(ExecutionState& state, Value thisValue, s
 
     while (true) {
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (!next.hasValue()) {
             return weakSet;
         }
 
         Value nextValue = IteratorObject::iteratorValue(state, next.value());
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
-        try {
-            Value argv[1] = { nextValue };
-            Object::call(state, add, weakSet, 1, argv);
-            RETURN_VALUE_IF_PENDING_EXCEPTION
-        } catch (const Value& v) {
-            Value exceptionValue = v;
+        Value argv[1] = { nextValue };
+        Object::call(state, add, weakSet, 1, argv);
+        if (UNLIKELY(state.hasPendingException())) {
+            Value exceptionValue = state.detachPendingException();
             return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
         }
     }

@@ -38,6 +38,7 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->mapPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     MapObject* map = new MapObject(state, proto);
 
     // If iterable is not present, or is either undefined or null, return map.
@@ -49,6 +50,7 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
 
     // Let adder be ? Get(map, "set").
     Value adder = map->Object::get(state, ObjectPropertyName(state.context()->staticStrings().set)).value(state, map);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If IsCallable(adder) is false, throw a TypeError exception.
     if (!adder.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
@@ -58,35 +60,46 @@ static Value builtinMapConstructor(ExecutionState& state, Value thisValue, size_
     auto iteratorRecord = IteratorObject::getIterator(state, iterable);
     RETURN_VALUE_IF_PENDING_EXCEPTION
     while (true) {
-        auto next = IteratorObject::iteratorStep(state, iteratorRecord);
-        if (!next.hasValue()) {
-            return map;
-        }
+        {
+            auto next = IteratorObject::iteratorStep(state, iteratorRecord);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            if (!next.hasValue()) {
+                return map;
+            }
 
-        Value nextItem = IteratorObject::iteratorValue(state, next.value());
-        if (!nextItem.isObject()) {
-            ErrorObject* errorobj = ErrorObject::createError(state, ErrorCode::TypeError, new ASCIIString("TypeError"));
-            return IteratorObject::iteratorClose(state, iteratorRecord, errorobj, true);
-        }
+            Value nextItem = IteratorObject::iteratorValue(state, next.value());
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            if (!nextItem.isObject()) {
+                ErrorObject* errorobj = ErrorObject::createError(state, ErrorCode::TypeError, new ASCIIString("TypeError"));
+                return IteratorObject::iteratorClose(state, iteratorRecord, errorobj, true);
+            }
 
-        try {
             // Let k be Get(nextItem, "0").
             // If k is an abrupt completion, return ? IteratorClose(iter, k).
             Value k = nextItem.asObject()->getIndexedProperty(state, Value(0)).value(state, nextItem);
+            if (state.hasPendingException())
+                goto IfAbrupt;
             // Let v be Get(nextItem, "1").
             // If v is an abrupt completion, return ? IteratorClose(iter, v).
             Value v = nextItem.asObject()->getIndexedProperty(state, Value(1)).value(state, nextItem);
+            if (state.hasPendingException())
+                goto IfAbrupt;
 
             // Let status be Call(adder, map, « k.[[Value]], v.[[Value]] »).
             Value argv[2] = { k, v };
             Object::call(state, adder, map, 2, argv);
-            RETURN_VALUE_IF_PENDING_EXCEPTION
-        } catch (const Value& v) {
-            // we should save thrown value bdwgc cannot track thrown value
-            Value exceptionValue = v;
-            // If status is an abrupt completion, return ? IteratorClose(iteratorRecord, status).
-            return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
+            if (state.hasPendingException())
+                goto IfAbrupt;
+            continue;
         }
+
+    IfAbrupt : {
+        ASSERT(state.hasPendingException());
+        // we should save thrown value bdwgc cannot track thrown value
+        Value exceptionValue = state.detachPendingException();
+        // If status is an abrupt completion, return ? IteratorClose(iteratorRecord, status).
+        return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
+    }
     }
 
     return map;

@@ -113,7 +113,7 @@ public:
         , m_lexicalEnvironment(nullptr)
         , m_stackLimit(stackLimit)
         , m_programCounter(nullptr)
-        , m_parent(0)
+        , m_parent(nullptr)
         , m_hasRareData(false)
         , m_inStrictMode(false)
         , m_isNativeFunctionObjectExecutionContext(false)
@@ -300,6 +300,11 @@ public:
     {
         ASSERT(!m_hasPendingException);
         m_hasPendingException = true;
+    }
+
+    void unsetPendingException()
+    {
+        m_hasPendingException = false;
     }
 
     Value detachPendingException();

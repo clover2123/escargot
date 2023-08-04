@@ -121,12 +121,12 @@ ErrorObject* ErrorObject::createBuiltinError(ExecutionState& state, ErrorCode co
 
 void ErrorObject::throwBuiltinError(ExecutionState& state, ErrorCode code, String* objectName, bool prototype, String* functionName, const char* templateString)
 {
-    state.throwException(Value(ErrorObject::createBuiltinError(state, code, objectName, prototype, functionName, templateString)));
+    THROW_EXCEPTION_RETURN(state, Value(ErrorObject::createBuiltinError(state, code, objectName, prototype, functionName, templateString)));
 }
 
 void ErrorObject::throwBuiltinError(ExecutionState& state, ErrorCode code, String* errorMessage)
 {
-    state.throwException(Value(ErrorObject::createError(state, code, errorMessage)));
+    THROW_EXCEPTION_RETURN(state, Value(ErrorObject::createError(state, code, errorMessage)));
 }
 
 ErrorObject::ErrorObject(ExecutionState& state, Object* proto, String* errorMessage)

@@ -41,6 +41,7 @@ IteratorObject::IteratorObject(ExecutionState& state, Object* proto)
 Value IteratorObject::next(ExecutionState& state)
 {
     auto result = advance(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     Object* r = new Object(state);
 
     r->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().value), ObjectPropertyDescriptor(result.first, ObjectPropertyDescriptor::AllPresent));
@@ -64,6 +65,7 @@ IteratorRecord* IteratorObject::getIterator(ExecutionState& state, const Value& 
             if (method.isUndefined()) {
                 // Let syncMethod be ? GetMethod(obj, @@iterator).
                 auto syncMethod = Object::getMethod(state, obj, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator));
+                RETURN_NULL_IF_PENDING_EXCEPTION
                 // Let syncIteratorRecord be ? GetIterator(obj, sync, syncMethod).
                 auto syncIteratorRecord = getIterator(state, obj, true, syncMethod);
                 RETURN_NULL_IF_PENDING_EXCEPTION
@@ -122,6 +124,7 @@ Object* IteratorObject::iteratorNext(ExecutionState& state, IteratorRecord* iter
 bool IteratorObject::iteratorComplete(ExecutionState& state, Object* iterResult)
 {
     Value result = iterResult->get(state, ObjectPropertyName(state.context()->staticStrings().done)).value(state, iterResult);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     return result.toBoolean(state);
 }
 
@@ -135,7 +138,7 @@ Value IteratorObject::iteratorValue(ExecutionState& state, Object* iterResult)
 Optional<Object*> IteratorObject::iteratorStep(ExecutionState& state, IteratorRecord* iteratorRecord)
 {
     Object* result = IteratorObject::iteratorNext(state, iteratorRecord);
-    ASSERT(!state.hasPendingException());
+    RETURN_NULL_IF_PENDING_EXCEPTION
     bool done = IteratorObject::iteratorComplete(state, result);
 
     return done ? nullptr : result;
@@ -149,7 +152,7 @@ Value IteratorObject::iteratorClose(ExecutionState& state, IteratorRecord* itera
     IteratorRecord* record = iteratorRecord;
     Value iterator = record->m_iterator;
     Value returnFunction = Object::getMethod(state, iterator, ObjectPropertyName(strings->stringReturn));
-    RETURN_NULL_IF_PENDING_EXCEPTION
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (returnFunction.isUndefined()) {
         if (hasThrowOnCompletionType) {
             THROW_EXCEPTION_RETURN_VALUE(state, completionValue);
@@ -158,13 +161,10 @@ Value IteratorObject::iteratorClose(ExecutionState& state, IteratorRecord* itera
     }
 
     // Let innerResult be Call(return, iterator, « »).
-    Value innerResult;
     bool innerResultHasException = false;
-    try {
-        innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& e) {
-        innerResult = e;
+    Value innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
+    if (UNLIKELY(state.hasPendingException())) {
+        innerResult = state.detachPendingException();
         innerResultHasException = true;
     }
     // If completion.[[type]] is throw, return Completion(completion).
@@ -210,6 +210,9 @@ ValueVectorWithInlineStorage IteratorObject::iterableToList(ExecutionState& stat
 
     while (true) {
         next = IteratorObject::iteratorStep(state, iteratorRecord);
+        if (UNLIKELY(state.hasPendingException())) {
+            return values;
+        }
         if (next.hasValue()) {
             Value nextValue = IteratorObject::iteratorValue(state, next.value());
             values.pushBack(nextValue);
@@ -232,6 +235,7 @@ ValueVector IteratorObject::iterableToListOfType(ExecutionState& state, const Va
 
     while (true) {
         next = IteratorObject::iteratorStep(state, iteratorRecord);
+        ASSERT(!state.hasPendingException());
         if (!next.hasValue()) {
             break;
         }

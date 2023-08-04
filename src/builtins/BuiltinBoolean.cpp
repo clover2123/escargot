@@ -34,6 +34,7 @@ static Value builtinBooleanConstructor(ExecutionState& state, Value thisValue, s
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
             return constructorRealm->globalObject()->booleanPrototype();
         });
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         BooleanObject* boolObj = new BooleanObject(state, proto, primitiveVal);
         return boolObj;
     }

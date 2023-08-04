@@ -36,6 +36,7 @@ static Value builtinWeakMapConstructor(ExecutionState& state, Value thisValue, s
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->weakMapPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     WeakMapObject* weakMap = new WeakMapObject(state, proto);
 
@@ -45,6 +46,7 @@ static Value builtinWeakMapConstructor(ExecutionState& state, Value thisValue, s
 
     Value iterable = argv[0];
     Value add = weakMap->Object::get(state, ObjectPropertyName(state.context()->staticStrings().set)).value(state, weakMap);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (!add.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
     }
@@ -52,27 +54,38 @@ static Value builtinWeakMapConstructor(ExecutionState& state, Value thisValue, s
     auto iteratorRecord = IteratorObject::getIterator(state, iterable);
     RETURN_VALUE_IF_PENDING_EXCEPTION
     while (true) {
-        auto next = IteratorObject::iteratorStep(state, iteratorRecord);
-        if (!next.hasValue()) {
-            return weakMap;
-        }
+        {
+            auto next = IteratorObject::iteratorStep(state, iteratorRecord);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            if (!next.hasValue()) {
+                return weakMap;
+            }
 
-        Value nextItem = IteratorObject::iteratorValue(state, next.value());
-        if (!nextItem.isObject()) {
-            ErrorObject* error = ErrorObject::createError(state, ErrorCode::TypeError, new ASCIIString("TypeError"));
-            return IteratorObject::iteratorClose(state, iteratorRecord, error, true);
-        }
+            Value nextItem = IteratorObject::iteratorValue(state, next.value());
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            if (!nextItem.isObject()) {
+                ErrorObject* error = ErrorObject::createError(state, ErrorCode::TypeError, new ASCIIString("TypeError"));
+                return IteratorObject::iteratorClose(state, iteratorRecord, error, true);
+            }
 
-        try {
             Value k = nextItem.asObject()->getIndexedProperty(state, Value(0)).value(state, nextItem);
+            if (UNLIKELY(state.hasPendingException()))
+                goto IfAbrupt;
             Value v = nextItem.asObject()->getIndexedProperty(state, Value(1)).value(state, nextItem);
+            if (UNLIKELY(state.hasPendingException()))
+                goto IfAbrupt;
             Value argv[2] = { k, v };
             Object::call(state, add, weakMap, 2, argv);
-            RETURN_VALUE_IF_PENDING_EXCEPTION
-        } catch (const Value& v) {
-            Value exception = v;
-            return IteratorObject::iteratorClose(state, iteratorRecord, exception, true);
+            if (UNLIKELY(state.hasPendingException()))
+                goto IfAbrupt;
+            continue;
         }
+
+    IfAbrupt : {
+        ASSERT(state.hasPendingException());
+        Value exception = state.detachPendingException();
+        return IteratorObject::iteratorClose(state, iteratorRecord, exception, true);
+    }
     }
     return weakMap;
 }

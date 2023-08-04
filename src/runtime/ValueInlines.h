@@ -908,6 +908,9 @@ inline Value::ValueIndex Value::toIndex(ExecutionState& ec) const
     }
 
     auto integerIndex = toInteger(ec);
+    if (UNLIKELY(ec.hasPendingException())) {
+        return 0;
+    }
     Value::ValueIndex index = Value(Value::DoubleToIntConvertibleTestNeeds, integerIndex).toLength(ec);
     if (UNLIKELY(integerIndex < 0 || integerIndex != index)) {
         return Value::InvalidIndexValue;
@@ -959,6 +962,9 @@ inline double Value::toInteger(ExecutionState& state) const
     }
 
     double d = toNumber(state);
+    if (UNLIKELY(state.hasPendingException())) {
+        return 0;
+    }
     if (std::isnan(d) || d == 0) {
         return 0;
     }

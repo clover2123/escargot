@@ -115,6 +115,7 @@ static Value awaitFulfilledFunction(ExecutionState& state, Value thisValue, size
 {
     ScriptAsyncFunctionHelperFunctionObject* self = (ScriptAsyncFunctionHelperFunctionObject*)state.resolveCallee();
     awaitFulfilledFunctions(state, self, argv[0]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return Value();
 }
 
@@ -136,6 +137,7 @@ static Value awaitRejectedFunction(ExecutionState& state, Value thisValue, size_
 {
     ScriptAsyncFunctionHelperFunctionObject* self = (ScriptAsyncFunctionHelperFunctionObject*)state.resolveCallee();
     awaitRejectedFunctions(state, self, argv[0]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return Value();
 }
 
@@ -144,8 +146,9 @@ PromiseObject* ScriptAsyncFunctionObject::awaitOperationBeforePause(ExecutionSta
 {
     // Let asyncContext be the running execution context.
     // Let promise be ? PromiseResolve(%Promise%, « value »).
-    PromiseObject* promise = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), awaitValue)->asPromiseObject();
-    ASSERT(!state.hasPendingException());
+    auto promiseObj = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), awaitValue);
+    RETURN_NULL_IF_PENDING_EXCEPTION
+    auto promise = promiseObj->asPromiseObject();
     // Let stepsFulfilled be the algorithm steps defined in Await Fulfilled Functions.
     // Let onFulfilled be CreateBuiltinFunction(stepsFulfilled, « [[AsyncContext]] »).
     // Set onFulfilled.[[AsyncContext]] to asyncContext.

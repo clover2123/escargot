@@ -45,6 +45,7 @@ static Value builtinFinalizationRegistryConstructor(ExecutionState& state, Value
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->finalizationRegistryPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     return new FinalizationRegistryObject(state, proto, argv[0].asObject(), state.resolveCallee()->getFunctionRealm(state));
 }

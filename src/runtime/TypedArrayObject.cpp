@@ -203,18 +203,19 @@ bool TypedArrayObject::integerIndexedElementSet(ExecutionState& state, double in
 }
 
 #define DECLARE_TYPEDARRAY(TYPE, type, siz, nativeType)                                                                                         \
-    TypedArrayObject* TYPE##ArrayObject::allocateTypedArray(ExecutionState& state, Object* newTarget, size_t length)                            \
+    Value TYPE##ArrayObject::allocateTypedArray(ExecutionState& state, Object* newTarget, size_t length)                                        \
     {                                                                                                                                           \
         ASSERT(!!newTarget);                                                                                                                    \
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget, [](ExecutionState& state, Context* constructorRealm) -> Object* { \
             return constructorRealm->globalObject()->type##ArrayPrototype();                                                                    \
         });                                                                                                                                     \
+        RETURN_VALUE_IF_PENDING_EXCEPTION                                                                                                       \
         TypedArrayObject* obj = new TYPE##ArrayObject(state, proto);                                                                            \
         if (length == std::numeric_limits<size_t>::max()) {                                                                                     \
             obj->setBuffer(nullptr, 0, 0, 0);                                                                                                   \
         } else {                                                                                                                                \
             auto buffer = ArrayBufferObject::allocateArrayBuffer(state, state.context()->globalObject()->arrayBuffer(), length * siz);          \
-            RETURN_NULL_IF_PENDING_EXCEPTION                                                                                                    \
+            RETURN_VALUE_IF_PENDING_EXCEPTION                                                                                                   \
             obj->setBuffer(buffer, 0, length* siz, length);                                                                                     \
         }                                                                                                                                       \
         return obj;                                                                                                                             \
@@ -264,6 +265,7 @@ bool TypedArrayObject::integerIndexedElementSet(ExecutionState& state, double in
     {                                                                                                                                           \
         typedef typename TYPE##Adaptor::Type Type;                                                                                              \
         Type littleEndianVal = TYPE##Adaptor::toNative(state, val);                                                                             \
+        RETURN_IF_PENDING_EXCEPTION                                                                                                             \
         ASSERT(byteLength());                                                                                                                   \
         size_t elementSize = siz;                                                                                                               \
         ASSERT(byteindex + elementSize <= byteLength());                                                                                        \
@@ -308,6 +310,7 @@ bool TypedArrayObject::integerIndexedElementSet(ExecutionState& state, double in
         if (LIKELY(property.isUInt32() && (size_t)property.asUInt32() < arrayLength() && !buffer()->isDetachedBuffer())) {                      \
             size_t indexedPosition = property.asUInt32() * siz;                                                                                 \
             setDirectValueInBuffer(state, indexedPosition, value);                                                                              \
+            RETURN_ZERO_IF_PENDING_EXCEPTION                                                                                                    \
             return true;                                                                                                                        \
         }                                                                                                                                       \
         return set(state, ObjectPropertyName(state, property), value, receiver);                                                                \

@@ -52,6 +52,7 @@ static Value builtinDataViewConstructor(ExecutionState& state, Value thisValue, 
     if (argc >= 2) {
         Value& val = argv[1];
         byteOffset = val.toIndex(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (byteOffset == Value::InvalidIndexValue) {
             THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().DataView.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_InvalidArrayBufferOffset);
         }
@@ -70,6 +71,7 @@ static Value builtinDataViewConstructor(ExecutionState& state, Value thisValue, 
         Value& val = argv[2];
         if (!val.isUndefined()) {
             byteLength = val.toIndex(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             if (byteOffset + byteLength > bufferByteLength || byteLength == Value::InvalidIndexValue) {
                 THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().DataView.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_InvalidArrayBufferOffset);
             }
@@ -79,6 +81,7 @@ static Value builtinDataViewConstructor(ExecutionState& state, Value thisValue, 
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->dataViewPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     ArrayBufferView* obj = new DataViewObject(state, proto);
     obj->setBuffer(buffer, byteOffset, byteLength);
 

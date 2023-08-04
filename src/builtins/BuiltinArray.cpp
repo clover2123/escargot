@@ -42,6 +42,7 @@ Value builtinArrayConstructor(ExecutionState& state, Value thisValue, size_t arg
         if (val.isNumber()) {
             if (val.equalsTo(state, Value(val.toUint32(state)))) {
                 size = val.toNumber(state);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             } else {
                 THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
             }
@@ -61,6 +62,7 @@ Value builtinArrayConstructor(ExecutionState& state, Value thisValue, size_t arg
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->arrayPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     ArrayObject* array = new ArrayObject(state, proto, size);
 
     if (interpretArgumentsAsElements) {
@@ -98,6 +100,7 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
     if (originalArray->isArray(state)) {
         // Let C be Get(originalArray, "constructor").
         C = originalArray->get(state, ObjectPropertyName(state.context()->staticStrings().constructor)).value(state, originalArray);
+        RETURN_NULL_IF_PENDING_EXCEPTION
 
         // If IsConstructor(C) is true, then
         if (C.isConstructor()) {
@@ -120,6 +123,7 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
         if (C.isObject()) {
             // a. Set C be Get(C, @@species).
             C = C.asObject()->get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().species)).value(state, C);
+            RETURN_NULL_IF_PENDING_EXCEPTION
             if (C.isNull()) { // b. If C is null, set C to undefined.
                 C = Value();
             }
@@ -137,7 +141,9 @@ static Object* arraySpeciesCreate(ExecutionState& state, Object* originalArray, 
     }
     // Return Construct(C, <<length>>).
     Value argv[1] = { Value(length) };
-    return Object::construct(state, C, 1, argv).toObject(state);
+    Value result = Object::construct(state, C, 1, argv);
+    RETURN_NULL_IF_PENDING_EXCEPTION
+    return result.toObject(state);
 }
 
 // http://ecma-international.org/ecma-262/10.0/#sec-flattenintoarray
@@ -153,9 +159,12 @@ static int64_t flattenIntoArray(ExecutionState& state, Value target, Value sourc
 
     while (sourceIndex < sourceLen) {
         String* p = Value(sourceIndex).toString(state);
+        RETURN_ZERO_IF_PENDING_EXCEPTION
         ObjectHasPropertyResult exists = source.asObject()->hasIndexedProperty(state, p);
+        RETURN_ZERO_IF_PENDING_EXCEPTION
         if (exists) {
             Value element = exists.value(state, ObjectPropertyName(state, p), source);
+            RETURN_ZERO_IF_PENDING_EXCEPTION
             if (!mappedValue.isEmpty()) {
                 Value args[] = { element, Value(sourceIndex), source };
                 ASSERT(!thisArg.isEmpty() && depth == 1);
@@ -164,6 +173,7 @@ static int64_t flattenIntoArray(ExecutionState& state, Value target, Value sourc
             }
             if (depth > 0 && element.isObject() && element.asObject()->isArray(state)) {
                 int64_t elementLen = element.asObject()->length(state);
+                RETURN_ZERO_IF_PENDING_EXCEPTION
                 targetIndex = flattenIntoArray(state, target, element, elementLen, targetIndex, depth - 1);
 
             } else {
@@ -225,7 +235,9 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
         // If IsConstructor(C) is true, then
         if (C.isConstructor()) {
             // Let A be ? Construct(C).
-            A = Object::construct(state, C, 0, nullptr).toObject(state);
+            Value cons = Object::construct(state, C, 0, nullptr);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            A = cons.toObject(state);
             RETURN_VALUE_IF_PENDING_EXCEPTION
         } else {
             // Let A be ArrayCreate(0).
@@ -250,6 +262,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
             ObjectPropertyName pk(state, k);
             // Let next be ? IteratorStep(iteratorRecord).
             Optional<Object*> next = IteratorObject::iteratorStep(state, iteratorRecord);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // If next is false, then
             if (!next.hasValue()) {
                 // Perform ? Set(A, "length", k, true).
@@ -260,6 +273,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
             }
             // Let nextValue be ? IteratorValue(next).
             Value nextValue = IteratorObject::iteratorValue(state, next.value());
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             Value mappedValue;
             // If mapping is true, then
             if (mapping) {
@@ -267,24 +281,21 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
                 // If mappedValue is an abrupt completion, return ? IteratorClose(iteratorRecord, mappedValue).
                 // Set mappedValue to mappedValue.[[Value]].
                 Value argv[] = { nextValue, Value(k) };
-                try {
-                    mappedValue = Object::call(state, mapfn, T, 2, argv);
-                    RETURN_VALUE_IF_PENDING_EXCEPTION
-                } catch (const Value& v) {
-                    Value exceptionValue = v;
+                mappedValue = Object::call(state, mapfn, T, 2, argv);
+                if (UNLIKELY(state.hasPendingException())) {
+                    ASSERT(mappedValue.isException());
+                    Value exceptionValue = state.detachPendingException();
                     return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
                 }
             } else {
                 mappedValue = nextValue;
             }
 
-            try {
-                // Let defineStatus be CreateDataPropertyOrThrow(A, Pk, mappedValue).
-                A->defineOwnPropertyThrowsException(state, pk, ObjectPropertyDescriptor(mappedValue, ObjectPropertyDescriptor::AllPresent));
-                RETURN_VALUE_IF_PENDING_EXCEPTION
-            } catch (const Value& v) {
+            // Let defineStatus be CreateDataPropertyOrThrow(A, Pk, mappedValue).
+            A->defineOwnPropertyThrowsException(state, pk, ObjectPropertyDescriptor(mappedValue, ObjectPropertyDescriptor::AllPresent));
+            if (UNLIKELY(state.hasPendingException())) {
                 // If defineStatus is an abrupt completion, return ? IteratorClose(iteratorRecord, defineStatus).
-                Value exceptionValue = v;
+                Value exceptionValue = state.detachPendingException();
                 return IteratorObject::iteratorClose(state, iteratorRecord, exceptionValue, true);
             }
             // Increase k by 1.
@@ -296,12 +307,15 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
     Object* arrayLike = items.toObject(state);
     // Let len be ? ToLength(? Get(arrayLike, "length")).
     uint64_t len = arrayLike->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If IsConstructor(C) is true, then
     Object* A;
     if (C.isConstructor()) {
         // Let A be ? Construct(C, « len »).
         Value vlen(len);
-        A = Object::construct(state, C, 1, &vlen).toObject(state);
+        Value cons = Object::construct(state, C, 1, &vlen);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        A = cons.toObject(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         // Else,
@@ -317,6 +331,7 @@ static Value builtinArrayFrom(ExecutionState& state, Value thisValue, size_t arg
         ObjectPropertyName Pk(state, k);
         // Let kValue be ? Get(arrayLike, Pk).
         Value kValue = arrayLike->getIndexedProperty(state, Value(k)).value(state, arrayLike);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If mapping is true, then
         Value mappedValue;
         if (mapping) {
@@ -350,7 +365,9 @@ static Value builtinArrayOf(ExecutionState& state, Value thisValue, size_t argc,
     Object* A;
     if (C.isConstructor()) {
         Value arg[1] = { Value(len) };
-        A = Object::construct(state, C, 1, arg).toObject(state);
+        Value cons = Object::construct(state, C, 1, arg);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        A = cons.toObject(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         A = new ArrayObject(state, static_cast<uint64_t>(len));
@@ -374,6 +391,7 @@ static Value builtinArrayJoin(ExecutionState& state, Value thisValue, size_t arg
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(thisBinded, Array, join);
     int64_t len = thisBinded->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     Value separator = argv[0];
     String* sep;
 
@@ -381,6 +399,7 @@ static Value builtinArrayJoin(ExecutionState& state, Value thisValue, size_t arg
         sep = state.context()->staticStrings().asciiTable[(size_t)','].string();
     } else {
         sep = separator.toString(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     if (!state.context()->toStringRecursionPreventer()->canInvokeToString(thisBinded)) {
@@ -403,9 +422,12 @@ static Value builtinArrayJoin(ExecutionState& state, Value thisValue, size_t arg
             builder.appendString(sep);
         }
         Value elem = thisBinded->getIndexedProperty(state, Value(curIndex)).value(state, thisBinded);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         if (!elem.isUndefinedOrNull()) {
-            builder.appendString(elem.toString(state));
+            String* str = elem.toString(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            builder.appendString(str);
         }
         prevIndex = curIndex;
         if (elem.isUndefined()) {
@@ -464,6 +486,7 @@ static Value builtinArrayReverse(ExecutionState& state, Value thisValue, size_t 
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, reverse);
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     int64_t middle = std::floor(len / 2);
     int64_t lower = 0;
     while (middle > lower) {
@@ -472,23 +495,30 @@ static Value builtinArrayReverse(ExecutionState& state, Value thisValue, size_t 
         ObjectPropertyName lowerP = ObjectPropertyName(state, lower);
 
         auto lowerExists = O->hasIndexedProperty(state, Value(lower));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         Value lowerValue;
         if (lowerExists) {
             lowerValue = lowerExists.value(state, lowerP, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
         auto upperExists = O->hasIndexedProperty(state, Value(upper));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         Value upperValue;
         if (upperExists) {
             upperValue = upperExists.value(state, upperP, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
         }
         if (lowerExists && upperExists) {
             O->setThrowsException(state, lowerP, upperValue, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             O->setThrowsException(state, upperP, lowerValue, O);
         } else if (!lowerExists && upperExists) {
             O->setThrowsException(state, lowerP, upperValue, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             O->deleteOwnPropertyThrowsException(state, upperP);
         } else if (lowerExists && !upperExists) {
             O->deleteOwnPropertyThrowsException(state, lowerP);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             O->setThrowsException(state, upperP, lowerValue, O);
         } else {
             int64_t result;
@@ -526,6 +556,7 @@ static Value builtinArraySort(ExecutionState& state, Value thisValue, size_t arg
     bool defaultSort = (argc == 0) || cmpfn.isUndefined();
 
     int64_t len = thisObject->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     thisObject->sort(state, len, [defaultSort, &cmpfn, &state](const Value& a, const Value& b) -> bool {
         if (a.isEmpty() && b.isUndefined())
@@ -546,6 +577,7 @@ static Value builtinArraySort(ExecutionState& state, Value thisValue, size_t arg
             ASSERT(!state.hasPendingException());
             return (ret.toNumber(state) < 0);
         } });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return thisObject;
 }
 
@@ -561,6 +593,7 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
     // Let lenVal be the result of calling the [[Get]] internal method of O with argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let relativeStart be ToInteger(start).
     double relativeStart = argv[0].toInteger(state);
@@ -596,6 +629,7 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
     CHECK_ARRAY_LENGTH(len + insertCount - actualDeleteCount > Value::maximumLength());
     // Let A be ArraySpeciesCreate(O, actualDeleteCount).
     Object* A = arraySpeciesCreate(state, O, actualDeleteCount);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let k be 0.
     int64_t k = 0;
@@ -607,11 +641,14 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
         // If fromPresent is true, then
         // Let fromValue be the result of calling the [[Get]] internal method of O with argument from.
         ObjectHasPropertyResult fromValue = O->hasIndexedProperty(state, Value(actualStart + k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (fromValue) {
             // Call the [[DefineOwnProperty]] internal method of A with arguments ToString(k), Property Descriptor {[[Value]]: fromValue, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true}, and false.
             ObjectPropertyName from(state, Value(actualStart + k));
+            Value val = fromValue.value(state, from, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             A->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, k),
-                                                ObjectPropertyDescriptor(fromValue.value(state, from, O), ObjectPropertyDescriptor::AllPresent));
+                                                ObjectPropertyDescriptor(val, ObjectPropertyDescriptor::AllPresent));
             RETURN_VALUE_IF_PENDING_EXCEPTION
         }
         // Increment k by 1.
@@ -642,11 +679,14 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
             int64_t to = k + itemCount;
             // Let fromPresent be the result of calling the [[HasProperty]] internal method of O with argument from.
             ObjectHasPropertyResult fromValue = O->hasIndexedProperty(state, Value(from));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // If fromPresent is true, then
             if (fromValue) {
                 // Let fromValue be the result of calling the [[Get]] internal method of O with argument from.
                 // Call the [[Put]] internal method of O with arguments to, fromValue, and true.
-                O->setIndexedPropertyThrowsException(state, Value(to), fromValue.value(state, ObjectPropertyName(state, from), O));
+                Value val = fromValue.value(state, ObjectPropertyName(state, from), O);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
+                O->setIndexedPropertyThrowsException(state, Value(to), val);
             } else {
                 // Else, fromPresent is false
 
@@ -680,12 +720,15 @@ static Value builtinArraySplice(ExecutionState& state, Value thisValue, size_t a
 
             // Let fromPresent be the result of calling the [[HasProperty]] internal method of O with argument from.
             ObjectHasPropertyResult fromValue = O->hasIndexedProperty(state, Value(k + actualDeleteCount - 1));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // If fromPresent is true, then
             if (fromValue) {
                 // Let fromValue be the result of calling the [[Get]] internal method of O with argument from.
                 // Call the [[Put]] internal method of O with arguments to, fromValue, and true.
                 ObjectPropertyName from(state, k + actualDeleteCount - 1);
-                O->setIndexedPropertyThrowsException(state, Value(k + itemCount - 1), fromValue.value(state, from, O));
+                Value val = fromValue.value(state, from, O);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
+                O->setIndexedPropertyThrowsException(state, Value(k + itemCount - 1), val);
             } else {
                 // Else, fromPresent is false
                 // Call the [[Delete]] internal method of O with argument to and true.
@@ -722,6 +765,7 @@ static Value builtinArrayConcat(ExecutionState& state, Value thisValue, size_t a
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(thisObject, Array, concat);
     Object* obj = arraySpeciesCreate(state, thisObject, 0);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     int64_t n = 0;
     for (size_t i = 0; i < argc + 1; i++) {
         Value argi = (i == 0) ? thisObject : argv[i - 1];
@@ -730,12 +774,14 @@ static Value builtinArrayConcat(ExecutionState& state, Value thisValue, size_t a
 
             // Let spreadable be IsConcatSpreadable(E).
             bool spreadable = arr->isConcatSpreadable(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             if (spreadable) {
                 // Let k be 0.
                 int64_t k = 0;
                 // Let len be the result of calling the [[Get]] internal method of E with argument "length".
                 int64_t len = arr->length(state);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
 
                 // If n + len > 2^53 - 1, throw a TypeError exception.
                 CHECK_ARRAY_LENGTH(n + len > Value::maximumLength());
@@ -744,8 +790,11 @@ static Value builtinArrayConcat(ExecutionState& state, Value thisValue, size_t a
                 while (k < len) {
                     // Let exists be the result of calling the [[HasProperty]] internal method of E with P.
                     ObjectHasPropertyResult exists = arr->hasIndexedProperty(state, Value(k));
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                     if (exists) {
-                        obj->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(n + k)), ObjectPropertyDescriptor(exists.value(state, ObjectPropertyName(state, k), arr), ObjectPropertyDescriptor::AllPresent));
+                        Value val = exists.value(state, ObjectPropertyName(state, k), arr);
+                        RETURN_VALUE_IF_PENDING_EXCEPTION
+                        obj->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(n + k)), ObjectPropertyDescriptor(val, ObjectPropertyDescriptor::AllPresent));
                         k++;
                     } else {
                         int64_t result;
@@ -777,6 +826,7 @@ static Value builtinArraySlice(ExecutionState& state, Value thisValue, size_t ar
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(thisObject, Array, slice);
     int64_t len = thisObject->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     double relativeStart = argv[0].toInteger(state);
     int64_t k = (relativeStart < 0) ? std::max((double)len + relativeStart, 0.0) : std::min(relativeStart, (double)len);
     int64_t kStart = k;
@@ -787,11 +837,15 @@ static Value builtinArraySlice(ExecutionState& state, Value thisValue, size_t ar
     // Let count be max(final - k, 0).
     // Let A be ArraySpeciesCreate(O, count).
     Object* ArrayObject = arraySpeciesCreate(state, thisObject, std::max(((int64_t)finalEnd - (int64_t)k), (int64_t)0));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     while (k < finalEnd) {
         ObjectHasPropertyResult exists = thisObject->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (exists) {
+            Value val = exists.value(state, ObjectPropertyName(state, k), thisObject);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             ArrayObject->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(n)),
-                                                          ObjectPropertyDescriptor(exists.value(state, ObjectPropertyName(state, k), thisObject), ObjectPropertyDescriptor::AllPresent));
+                                                          ObjectPropertyDescriptor(val, ObjectPropertyDescriptor::AllPresent));
             k++;
             n++;
         } else {
@@ -815,6 +869,7 @@ static Value builtinArrayForEach(ExecutionState& state, Value thisValue, size_t 
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(thisObject, Array, forEach);
     int64_t len = thisObject->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     Value callbackfn = argv[0];
     if (!callbackfn.isCallable()) {
@@ -831,8 +886,10 @@ static Value builtinArrayForEach(ExecutionState& state, Value thisValue, size_t 
     while (k < len) {
         Value Pk = Value(k);
         auto res = thisObject->hasProperty(state, ObjectPropertyName(state, Pk));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (res) {
             Value kValue = res.value(state, ObjectPropertyName(state, k), thisObject);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             Value args[3] = { kValue, Pk, thisObject };
             Object::call(state, callbackfn, T, 3, args);
             RETURN_VALUE_IF_PENDING_EXCEPTION
@@ -854,6 +911,7 @@ static Value builtinArrayIndexOf(ExecutionState& state, Value thisValue, size_t 
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If len is 0, return -1.
     if (len == 0) {
@@ -894,10 +952,12 @@ static Value builtinArrayIndexOf(ExecutionState& state, Value thisValue, size_t 
     while (k < len) {
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument ToString(k).
         auto kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let elementK be the result of calling the [[Get]] internal method of O with the argument ToString(k).
             Value elementK = kPresent.value(state, ObjectPropertyName(state, k), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Let same be the result of applying the Strict Equality Comparison Algorithm to searchElement and elementK.
             if (elementK.equalsTo(state, argv[0])) {
@@ -925,6 +985,7 @@ static Value builtinArrayLastIndexOf(ExecutionState& state, Value thisValue, siz
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     double len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If len is 0, return -1.
     if (len == 0) {
@@ -959,10 +1020,12 @@ static Value builtinArrayLastIndexOf(ExecutionState& state, Value thisValue, siz
     while (k >= 0) {
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument ToString(k).
         auto kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let elementK be the result of calling the [[Get]] internal method of O with the argument ToString(k).
             Value elementK = kPresent.value(state, ObjectPropertyName(state, k), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Let same be the result of applying the Strict Equality Comparison Algorithm to searchElement and elementK.
             if (elementK.equalsTo(state, argv[0])) {
@@ -989,6 +1052,7 @@ static Value builtinArrayEvery(ExecutionState& state, Value thisValue, size_t ar
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
@@ -1009,11 +1073,13 @@ static Value builtinArrayEvery(ExecutionState& state, Value thisValue, size_t ar
         // Let Pk be ToString(k).
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
         auto kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         // If kPresent is true, then
         if (kPresent) {
             // Let kValue be the result of calling the [[Get]] internal method of O with argument Pk.
             Value kValue = kPresent.value(state, ObjectPropertyName(state, k), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Let testResult be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value args[] = { kValue, Value(k), O };
             Value testResult = Object::call(state, callbackfn, T, 3, args);
@@ -1040,6 +1106,7 @@ static Value builtinArrayFill(ExecutionState& state, Value thisValue, size_t arg
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let relativeStart be ToInteger(start).
     double relativeStart = 0;
@@ -1077,6 +1144,7 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
@@ -1103,10 +1171,12 @@ static Value builtinArrayFilter(ExecutionState& state, Value thisValue, size_t a
         // Let Pk be ToString(k).
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
         ObjectHasPropertyResult kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let kValue be the result of calling the [[Get]] internal method of O with argument Pk.
             Value kValue = kPresent.value(state, ObjectPropertyName(state, k), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Let selected be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value v[] = { kValue, Value(k), O };
@@ -1143,6 +1213,7 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
@@ -1167,11 +1238,13 @@ static Value builtinArrayMap(ExecutionState& state, Value thisValue, size_t argc
         // Let Pk be ToString(k).
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
         auto kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let kValue be the result of calling the [[Get]] internal method of O with argument Pk.
             auto Pk = ObjectPropertyName(state, k);
             Value kValue = kPresent.value(state, Pk, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Let mappedValue be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value v[] = { kValue, Value(k), O };
             Value mappedValue = Object::call(state, callbackfn, T, 3, v);
@@ -1198,6 +1271,7 @@ static Value builtinArraySome(ExecutionState& state, Value thisValue, size_t arg
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
@@ -1218,11 +1292,13 @@ static Value builtinArraySome(ExecutionState& state, Value thisValue, size_t arg
         // Let Pk be ToString(k).
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
         ObjectHasPropertyResult kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let kValue be the result of calling the [[Get]] internal method of O with argument Pk.
             ObjectPropertyName Pk(state, k);
             Value kValue = kPresent.value(state, Pk, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Let testResult be the result of calling the [[Call]] internal method of callbackfn with T as the this value and argument list containing kValue, k, and O.
             Value argv[] = { kValue, Value(k), O };
             Value testResult = Object::call(state, callbackfn, T, 3, argv);
@@ -1251,6 +1327,7 @@ static Value builtinArrayIncludes(ExecutionState& state, Value thisValue, size_t
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, includes);
     // Let len be ? ToLength(? Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If len is 0, return false.
     if (len == 0) {
@@ -1282,6 +1359,7 @@ static Value builtinArrayIncludes(ExecutionState& state, Value thisValue, size_t
     while (doubleK < len) {
         // Let elementK be the result of ? Get(O, ! ToString(k)).
         Value elementK = O->get(state, ObjectPropertyName(state, Value(Value::DoubleToIntConvertibleTestNeeds, doubleK))).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If SameValueZero(searchElement, elementK) is true, return true.
         if (elementK.equalsToByTheSameValueZeroAlgorithm(state, searchElement)) {
             return Value(true);
@@ -1307,6 +1385,7 @@ static Value builtinArrayToLocaleString(ExecutionState& state, Value thisValue, 
 
     // Let len be ? ToLength(? Get(array, "length")).
     uint64_t len = array->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let separator be the String value for the list-separator String appropriate for the host environment’s current locale (this is derived in an implementation-defined way).
     String* separator = state.context()->staticStrings().asciiTable[(size_t)','].string();
@@ -1329,11 +1408,15 @@ static Value builtinArrayToLocaleString(ExecutionState& state, Value thisValue, 
         }
         // Let nextElement be ? Get(array, ! ToString(k)).
         Value nextElement = array->getIndexedProperty(state, Value(k)).value(state, array);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If nextElement is not undefined or null, then
         if (!nextElement.isUndefinedOrNull()) {
             // Let S be ? ToString(? Invoke(nextElement, "toLocaleString", « locales, options »)).
             Value func = nextElement.toObject(state)->get(state, state.context()->staticStrings().toLocaleString).value(state, nextElement);
-            String* S = Object::call(state, func, nextElement, argc, argv).toString(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            Value val = Object::call(state, func, nextElement, argc, argv);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            String* S = val.toString(state);
             RETURN_VALUE_IF_PENDING_EXCEPTION
             // Set R to the string-concatenation of R and S.
             StringBuilder builder;
@@ -1354,6 +1437,7 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
     // Let O be the result of calling ToObject passing the this value as the argument.
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, reduce);
     int64_t len = O->length(state); // 2-3
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     Value callbackfn = argv[0];
     Value initialValue = Value(Value::EmptyValue);
     if (argc > 1) {
@@ -1374,8 +1458,10 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
         ObjectHasPropertyResult kPresent; // 8.a
         while (!kPresent && k < len) { // 8.b
             kPresent = O->hasIndexedProperty(state, Value(k)); // 8.b.ii
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             if (kPresent) {
                 accumulator = kPresent.value(state, ObjectPropertyName(state, k), O);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
             k++; // 8.b.iv
         }
@@ -1384,8 +1470,10 @@ static Value builtinArrayReduce(ExecutionState& state, Value thisValue, size_t a
     }
     while (k < len) { // 9
         ObjectHasPropertyResult kPresent = O->hasIndexedProperty(state, Value(k)); // 9.b
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (kPresent) { // 9.c
             Value kValue = kPresent.value(state, ObjectPropertyName(state, k), O); // 9.c.i
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             const int fnargc = 4;
             Value fnargs[] = { accumulator, kValue, Value(k), O };
             accumulator = Object::call(state, callbackfn, Value(), fnargc, fnargs);
@@ -1408,6 +1496,7 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
     // Let lenValue be the result of calling the [[Get]] internal method of O with the argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If IsCallable(callbackfn) is false, throw a TypeError exception.
     Value callbackfn = argv[0];
@@ -1439,11 +1528,13 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
             // Let Pk be ToString(k).
             // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
             kPresent = O->hasIndexedProperty(state, Value(k));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // If kPresent is true, then
             if (kPresent) {
                 // Let accumulator be the result of calling the [[Get]] internal method of O with argument Pk.
                 accumulator = kPresent.value(state, ObjectPropertyName(state, k), O);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
 
             // Decrease k by 1.
@@ -1463,10 +1554,12 @@ static Value builtinArrayReduceRight(ExecutionState& state, Value thisValue, siz
         ObjectPropertyName Pk(state, k);
         // Let kPresent be the result of calling the [[HasProperty]] internal method of O with argument Pk.
         ObjectHasPropertyResult kPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If kPresent is true, then
         if (kPresent) {
             // Let kValue be the result of calling the [[Get]] internal method of O with argument Pk.
             Value kValue = kPresent.value(state, ObjectPropertyName(state, k), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Let accumulator be the result of calling the [[Call]] internal method of callbackfn with undefined as the this value and argument list containing accumulator, kValue, k, and O.
             Value v[] = { accumulator, kValue, Value(k), O };
@@ -1492,6 +1585,7 @@ static Value builtinArrayPop(ExecutionState& state, Value thisValue, size_t argc
     // Let lenVal be the result of calling the [[Get]] internal method of O with argument "length".
     // Let len be ToUint32(lenVal).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If len is zero,
     if (len == 0) {
@@ -1506,8 +1600,10 @@ static Value builtinArrayPop(ExecutionState& state, Value thisValue, size_t argc
         ObjectPropertyName indx(state, len - 1);
         // Let element be the result of calling the [[Get]] internal method of O with argument indx.
         Value element = O->get(state, indx).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Call the [[Delete]] internal method of O with arguments indx and true.
         O->deleteOwnPropertyThrowsException(state, indx);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Call the [[Put]] internal method of O with arguments "length", indx, and true.
         O->setThrowsException(state, ObjectPropertyName(state.context()->staticStrings().length), Value(len - 1), O);
         RETURN_VALUE_IF_PENDING_EXCEPTION
@@ -1525,6 +1621,7 @@ static Value builtinArrayPush(ExecutionState& state, Value thisValue, size_t arg
     // Let lenVal be the result of calling the [[Get]] internal method of O with argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t n = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // If len + argCount > 2^53 - 1, throw a TypeError exception.
     CHECK_ARRAY_LENGTH((uint64_t)n + argc > Value::maximumLength());
@@ -1554,6 +1651,7 @@ static Value builtinArrayFlat(ExecutionState& state, Value thisValue, size_t arg
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, flat);
     int64_t sourceLen = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     double depthNum = 1;
     if (argc > 0 && !argv[0].isUndefined()) {
         depthNum = argv[0].toInteger(state);
@@ -1572,6 +1670,7 @@ static Value builtinArrayFlatMap(ExecutionState& state, Value thisValue, size_t 
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, flatMap);
     int64_t sourceLen = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (!argv[0].isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().flatMap.string(), ErrorObject::Messages::GlobalObject_FirstArgumentNotCallable);
     }
@@ -1593,6 +1692,7 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
     // Let lenVal be the result of calling the [[Get]] internal method of O with argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If len is zero, then
     if (len == 0) {
         // Call the [[Put]] internal method of O with arguments "length", 0, and true.
@@ -1603,6 +1703,7 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
     }
     // Let first be the result of calling the [[Get]] internal method of O with argument "0".
     Value first = O->get(state, ObjectPropertyName(state, Value(0))).value(state, O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let k be 1.
     int64_t k = 1;
     // Repeat, while k < len
@@ -1613,11 +1714,13 @@ static Value builtinArrayShift(ExecutionState& state, Value thisValue, size_t ar
         ObjectPropertyName to(state, k - 1);
         // Let fromPresent be the result of calling the [[HasProperty]] internal method of O with argument from.
         auto fromPresent = O->hasIndexedProperty(state, Value(k));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         // If fromPresent is true, then
         if (fromPresent) {
             // Let fromVal be the result of calling the [[Get]] internal method of O with argument from.
             Value fromVal = fromPresent.value(state, from, O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // Call the [[Put]] internal method of O with arguments to, fromVal, and true.
             O->setThrowsException(state, to, fromVal, O);
         } else {
@@ -1657,6 +1760,7 @@ static Value builtinArrayUnshift(ExecutionState& state, Value thisValue, size_t 
     // Let lenVal be the result of calling the [[Get]] internal method of O with argument "length".
     // Let len be ToLength(Get(O, "length")).
     int64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // Let argCount be the number of actual arguments.
     int64_t argCount = argc;
@@ -1679,11 +1783,13 @@ static Value builtinArrayUnshift(ExecutionState& state, Value thisValue, size_t 
 
             // Let fromPresent be the result of calling the [[HasProperty]] internal method of O with argument from.
             ObjectHasPropertyResult fromPresent = O->hasIndexedProperty(state, Value(k - 1));
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             // If fromPresent is true, then
             if (fromPresent) {
                 // Let fromValue be the result of calling the [[Get]] internal method of O with argument from.
                 ObjectPropertyName from(state, k - 1);
                 Value fromValue = fromPresent.value(state, from, O);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
                 // Call the [[Put]] internal method of O with arguments to, fromValue, and true.
                 O->setThrowsException(state, to, fromValue, O);
             } else {
@@ -1742,6 +1848,7 @@ static Value builtinArrayFind(ExecutionState& state, Value thisValue, size_t arg
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, find);
     // Let len be ? ToLength(? Get(O, "length")).
     uint64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().find.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
@@ -1754,9 +1861,12 @@ static Value builtinArrayFind(ExecutionState& state, Value thisValue, size_t arg
         // Let Pk be ! ToString(k).
         // Let kValue be ? Get(O, Pk).
         Value kValue = O->get(state, ObjectPropertyName(state, Value(k))).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let testResult be ToBoolean(? Call(predicate, thisArg, « kValue, k, O »)).
         Value v[] = { kValue, Value(k), O };
-        bool testResult = Object::call(state, argv[0], thisArg, 3, v).toBoolean(state);
+        Value res = Object::call(state, argv[0], thisArg, 3, v);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        bool testResult = res.toBoolean(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         // If testResult is true, return kValue.
         if (testResult) {
@@ -1778,6 +1888,7 @@ static Value builtinArrayFindIndex(ExecutionState& state, Value thisValue, size_
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, findIndex);
     // Let len be ? ToLength(? Get(O, "length")).
     uint64_t len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
@@ -1790,9 +1901,12 @@ static Value builtinArrayFindIndex(ExecutionState& state, Value thisValue, size_
         // Let Pk be ! ToString(k).
         // Let kValue be ? Get(O, Pk).
         Value kValue = O->get(state, ObjectPropertyName(state, Value(k))).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let testResult be ToBoolean(? Call(predicate, thisArg, « kValue, k, O »)).
         Value v[] = { kValue, Value(k), O };
-        bool testResult = Object::call(state, argv[0], thisArg, 3, v).toBoolean(state);
+        Value res = Object::call(state, argv[0], thisArg, 3, v);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        bool testResult = res.toBoolean(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         // If testResult is true, return k.
         if (testResult) {
@@ -1812,6 +1926,7 @@ static Value builtinArrayCopyWithin(ExecutionState& state, Value thisValue, size
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, copyWithin);
     // Let len be ToLength(Get(O, "length")).
     double len = O->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Let relativeTarget be ToInteger(target).
     double relativeTarget = argv[0].toInteger(state);
     // If relativeTarget < 0, let to be max((len + relativeTarget),0); else let to be min(relativeTarget, len).
@@ -1848,10 +1963,13 @@ static Value builtinArrayCopyWithin(ExecutionState& state, Value thisValue, size
     while (intCount > 0) {
         // Let fromPresent be HasProperty(O, fromKey).
         ObjectHasPropertyResult fromValue = O->hasIndexedProperty(state, Value(intFrom));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // If fromPresent is true, then
         if (fromValue) {
             // Let setStatus be Set(O, toKey, fromVal, true).
-            O->setIndexedPropertyThrowsException(state, Value(intTo), fromValue.value(state, ObjectPropertyName(state, intFrom), O));
+            Value val = fromValue.value(state, ObjectPropertyName(state, intFrom), O);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
+            O->setIndexedPropertyThrowsException(state, Value(intTo), val);
         } else {
             // Let deleteStatus be DeletePropertyOrThrow(O, toKey).
             O->deleteOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(intTo)));
@@ -1900,6 +2018,7 @@ static Value builtinArrayAt(ExecutionState& state, Value thisValue, size_t argc,
 {
     RESOLVE_THIS_BINDING_TO_OBJECT(obj, Array, at);
     size_t len = obj->length(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     double relativeIndex = argv[0].toInteger(state);
     double k = (relativeIndex < 0) ? len + relativeIndex : relativeIndex;
 
@@ -1919,6 +2038,7 @@ static Value builtinArrayFindLast(ExecutionState& state, Value thisValue, size_t
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, findLast);
     // 2. Let len be ? LengthOfArrayLike(O).
     int64_t len = static_cast<int64_t>(O->length(state));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // 3. If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLast.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
@@ -1930,11 +2050,14 @@ static Value builtinArrayFindLast(ExecutionState& state, Value thisValue, size_t
         // a. Let Pk be ! ToString(𝔽(k)).
         // b. Let kValue be ? Get(O, Pk).
         Value kValue = O->getIndexedProperty(state, Value(k)).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // c. Let testResult be ! ToBoolean(? Call(predicate, thisArg, « kValue, 𝔽(k), O »)).
         Value predicateArgv[] = {
             kValue, Value(k), Value(O)
         };
-        bool testResult = Object::call(state, predicate, thisArg, 3, predicateArgv).toBoolean(state);
+        Value res = Object::call(state, predicate, thisArg, 3, predicateArgv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        bool testResult = res.toBoolean(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         // d. If testResult is true, return kValue.
         if (testResult) {
@@ -1956,6 +2079,7 @@ static Value builtinArrayFindLastIndex(ExecutionState& state, Value thisValue, s
     RESOLVE_THIS_BINDING_TO_OBJECT(O, Array, findLastIndex);
     // 2. Let len be ? LengthOfArrayLike(O).
     int64_t len = static_cast<int64_t>(O->length(state));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // 3. If IsCallable(predicate) is false, throw a TypeError exception.
     if (!predicate.isCallable()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().Array.string(), true, state.context()->staticStrings().findLastIndex.string(), ErrorObject::Messages::GlobalObject_CallbackNotCallable);
@@ -1967,11 +2091,14 @@ static Value builtinArrayFindLastIndex(ExecutionState& state, Value thisValue, s
         // a. Let Pk be ! ToString(𝔽(k)).
         // b. Let kValue be ? Get(O, Pk).
         Value kValue = O->getIndexedProperty(state, Value(k)).value(state, O);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         // c. Let testResult be ! ToBoolean(? Call(predicate, thisArg, « kValue, 𝔽(k), O »)).
         Value predicateArgv[] = {
             kValue, Value(k), Value(O)
         };
-        bool testResult = Object::call(state, predicate, thisArg, 3, predicateArgv).toBoolean(state);
+        Value res = Object::call(state, predicate, thisArg, 3, predicateArgv);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        bool testResult = res.toBoolean(state);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         // d. If testResult is true, return kValue.
         if (testResult) {

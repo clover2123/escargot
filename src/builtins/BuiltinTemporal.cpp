@@ -1539,6 +1539,7 @@ static Value builtinTemporalCalendarFields(ExecutionState& state, Value thisValu
 
     while (true) {
         next = IteratorObject::iteratorStep(state, iteratorRecord);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
 
         if (!next.hasValue()) {
             break;

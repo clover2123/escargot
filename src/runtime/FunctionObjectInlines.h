@@ -169,6 +169,7 @@ public:
                     return constructorRealm->globalObject()->asyncGeneratorPrototype();
                 });
             }
+            RETURN_VALUE_IF_PENDING_EXCEPTION
 
             // Return ObjectCreate(proto, internalSlotsList).
             Object* generatorObject;
@@ -186,6 +187,7 @@ public:
                 generatorObject = gen;
             }
 
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             return generatorObject;
         }
 
@@ -228,8 +230,8 @@ public:
                                                     thisArgument, record);
 
         // check Exception
-        if (UNLIKELY(returnValue.isException())) {
-            ASSERT(newState->hasPendingException());
+        if (UNLIKELY(newState->hasPendingException())) {
+            ASSERT(returnValue.isException());
             state.setPendingException();
         }
 
@@ -309,7 +311,7 @@ Value NativeFunctionObject::processNativeFunctionCall(ExecutionState& state, con
     Value result;
     if (isConstruct) {
         result = nativeFunc(newState, receiver, argc, argv, newTarget);
-        if (shouldReturnsObjectOnConstructCall && UNLIKELY(!result.isObject())) {
+        if (shouldReturnsObjectOnConstructCall && UNLIKELY(!result.isObject()) && !newState.hasPendingException()) {
             // return exception done!
             ErrorObject::throwBuiltinError(newState, ErrorCode::TypeError, "Native Constructor must returns constructed new object");
             result = Value(Value::Exception);
@@ -320,8 +322,8 @@ Value NativeFunctionObject::processNativeFunctionCall(ExecutionState& state, con
     }
 
     // check Exception
-    if (UNLIKELY(result.isException())) {
-        ASSERT(newState.hasPendingException());
+    if (UNLIKELY(newState.hasPendingException())) {
+        ASSERT(result.isException());
         state.setPendingException();
     }
 #ifdef ESCARGOT_DEBUGGER

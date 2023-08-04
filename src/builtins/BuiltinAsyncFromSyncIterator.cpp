@@ -59,36 +59,31 @@ static Value asyncFromSyncIteratorValueUnwrap(ExecutionState& state, Value thisV
 static Value asyncFromSyncIteratorContinuation(ExecutionState& state, Object* result, PromiseReaction::Capability promiseCapability)
 {
     // Let done be IteratorComplete(result).
-    bool done;
-    try {
-        done = IteratorObject::iteratorComplete(state, result);
-    } catch (const Value& thrownValue) {
+    bool done = IteratorObject::iteratorComplete(state, result);
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(done, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
+
     // Let value be IteratorValue(result).
-    Value value;
-    try {
-        value = IteratorObject::iteratorValue(state, result);
-    } catch (const Value& thrownValue) {
+    Value value = IteratorObject::iteratorValue(state, result);
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(value, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
+
     // Let valueWrapper be ? PromiseResolve(%Promise%, « value »).
-    PromiseObject* valueWrapper = nullptr;
-    try {
-        valueWrapper = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), value)->asPromiseObject();
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+    PromiseObject* valueWrapper = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), value)->asPromiseObject();
+    if (UNLIKELY(state.hasPendingException())) {
         // * added step from 2020 (esid: language/statements/for-await-of/async-from-sync-iterator-continuation-abrupt-completion-get-constructor.js)
         // IfAbruptRejectPromise(valueWrapper, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
@@ -125,21 +120,22 @@ static Value builtinAsyncFromSyncIteratorNext(ExecutionState& state, Value thisV
     // Let syncIteratorRecord be O.[[SyncIteratorRecord]].
     auto syncIteratorRecord = O.asObject()->asAsyncFromSyncIteratorObject()->syncIteratorRecord();
     Object* result;
-    try {
-        // Let result be IteratorNext(syncIteratorRecord, value).
-        // If value is present, then
-        //   a. Let result be IteratorNext(syncIteratorRecord, value).
-        // Else,
-        //   a. Let result be IteratorNext(syncIteratorRecord).
-        result = IteratorObject::iteratorNext(state, syncIteratorRecord, argc ? argv[0] : Value(Value::EmptyValue));
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+
+    // Let result be IteratorNext(syncIteratorRecord, value).
+    // If value is present, then
+    //   a. Let result be IteratorNext(syncIteratorRecord, value).
+    // Else,
+    //   a. Let result be IteratorNext(syncIteratorRecord).
+    result = IteratorObject::iteratorNext(state, syncIteratorRecord, argc ? argv[0] : Value(Value::EmptyValue));
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(result, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
     }
+
     // Return ! AsyncFromSyncIteratorContinuation(result, promiseCapability).
     return asyncFromSyncIteratorContinuation(state, result, promiseCapability);
 }
@@ -166,13 +162,10 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
     // Let syncIterator be O.[[SyncIteratorRecord]].[[Iterator]].
     Object* syncIterator = O.asObject()->asAsyncFromSyncIteratorObject()->syncIteratorRecord()->m_iterator;
     // Let return be GetMethod(syncIterator, "return").
-    Value returnVariable;
-    try {
-        returnVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringReturn);
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+    Value returnVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringReturn);
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(return, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
@@ -190,20 +183,18 @@ static Value builtinAsyncFromSyncIteratorReturn(ExecutionState& state, Value thi
     }
 
     Value result;
-    try {
-        // If value is present, then
-        //   a. Let result be Call(return, syncIterator, « value »).
-        // Else,
-        //   a. Let result be Call(return, syncIterator).
-        if (argc) {
-            result = Object::call(state, returnVariable, syncIterator, 1, &value);
-        } else {
-            result = Object::call(state, returnVariable, syncIterator, 0, nullptr);
-        }
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+    // If value is present, then
+    //   a. Let result be Call(return, syncIterator, « value »).
+    // Else,
+    //   a. Let result be Call(return, syncIterator).
+    if (argc) {
+        result = Object::call(state, returnVariable, syncIterator, 1, &value);
+    } else {
+        result = Object::call(state, returnVariable, syncIterator, 0, nullptr);
+    }
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(return, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
@@ -245,13 +236,10 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     // Let syncIterator be O.[[SyncIteratorRecord]].[[Iterator]].
     Object* syncIterator = O.asObject()->asAsyncFromSyncIteratorObject()->syncIteratorRecord()->m_iterator;
     // Let throw be GetMethod(syncIterator, "throw").
-    Value throwVariable;
-    try {
-        throwVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringThrow);
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+    Value throwVariable = Object::getMethod(state, syncIterator, state.context()->staticStrings().stringThrow);
+    if (state.hasPendingException()) {
         // IfAbruptRejectPromise(return, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;
@@ -267,13 +255,10 @@ static Value builtinAsyncFromSyncIteratorThrow(ExecutionState& state, Value this
     }
 
     // Let result be Call(throw, syncIterator, « value »).
-    Value result;
-    try {
-        result = Object::call(state, throwVariable, syncIterator, 1, &value);
-        RETURN_VALUE_IF_PENDING_EXCEPTION
-    } catch (const Value& thrownValue) {
+    Value result = Object::call(state, throwVariable, syncIterator, 1, &value);
+    if (UNLIKELY(state.hasPendingException())) {
         // IfAbruptRejectPromise(result, promiseCapability).
-        Value argv = thrownValue;
+        Value argv = state.detachPendingException();
         Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &argv);
         RETURN_VALUE_IF_PENDING_EXCEPTION
         return promiseCapability.m_promise;

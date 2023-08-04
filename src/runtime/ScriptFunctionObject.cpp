@@ -166,6 +166,7 @@ Value ScriptFunctionObject::construct(ExecutionState& state, const size_t argc, 
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget, [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->objectPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Set the [[Prototype]] internal slot of obj to proto.
     Object* thisArgument = new Object(state, proto);
 

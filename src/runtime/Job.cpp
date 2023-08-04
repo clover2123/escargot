@@ -64,27 +64,31 @@ SandBox::SandBoxResult PromiseReactionJob::run()
             return Object::call(state, m_reaction.m_capability.m_rejectFunction, Value(), 1, value);
         }
 
-        SandBox sb(state.context());
-        auto res = sb.run([&]() -> Value {
-            Value arguments[] = { m_argument };
-            Value res = Object::call(state, m_reaction.m_handler, Value(), 1, arguments);
-            // m_reaction.m_capability can be null when there was no result capability when promise.then()
-            if (m_reaction.m_capability.m_promise == nullptr) {
-                return Value();
-            }
+        Value argument = m_argument;
+        Value res = Object::call(state, m_reaction.m_handler, Value(), 1, &argument);
+        if (UNLIKELY(state.hasPendingException()))
+            goto IfAbrupt;
+
+        // m_reaction.m_capability can be null when there was no result capability when promise.then()
+        if (m_reaction.m_capability.m_promise != nullptr) {
             Value value[] = { res };
-            return Object::call(state, m_reaction.m_capability.m_resolveFunction, Value(), 1, value);
-        });
-        if (!res.error.isEmpty()) {
-            if (m_reaction.m_capability.m_rejectFunction) {
-                Value reason[] = { res.error };
-                return Object::call(state, m_reaction.m_capability.m_rejectFunction, Value(), 1, reason);
-            } else {
-                state.throwException(res.error);
-            }
+            Object::call(state, m_reaction.m_capability.m_resolveFunction, Value(), 1, value);
+            if (UNLIKELY(state.hasPendingException()))
+                goto IfAbrupt;
         }
-        return res.result;
-    });
+        return res;
+
+    IfAbrupt : {
+        ASSERT(state.hasPendingException());
+        Value reason = state.detachPendingException();
+        if (m_reaction.m_capability.m_rejectFunction) {
+            return Object::call(state, m_reaction.m_capability.m_rejectFunction, Value(), 1, &reason);
+        } else {
+            THROW_EXCEPTION_RETURN_VALUE(state, reason);
+        }
+    }
+    },
+                                                state);
 
 #ifdef ESCARGOT_DEBUGGER
     if (activeSavedStackTraceExecutionState != ESCARGOT_DEBUGGER_NO_STACK_TRACE_RESTORE) {
@@ -109,18 +113,15 @@ SandBox::SandBoxResult PromiseResolveThenableJob::run()
     return sandbox.run([&]() -> Value {
         auto strings = &state.context()->staticStrings();
         PromiseReaction::Capability capability = m_promise->createResolvingFunctions(state);
-
-        SandBox sb(state.context());
-        auto res = sb.run([&]() -> Value {
-            Value arguments[] = { capability.m_resolveFunction, capability.m_rejectFunction };
-            return Object::call(state, m_then, m_thenable, 2, arguments);
-        });
-        if (!res.error.isEmpty()) {
-            Value reason[] = { res.error };
-            return Object::call(state, capability.m_rejectFunction, Value(), 1, reason);
+        Value arguments[] = { capability.m_resolveFunction, capability.m_rejectFunction };
+        Value result = Object::call(state, m_then, m_thenable, 2, arguments);
+        if (UNLIKELY(state.hasPendingException())) {
+            Value reason = state.detachPendingException();
+            return Object::call(state, capability.m_rejectFunction, Value(), 1, &reason);
         }
-        return res.result;
-    });
+        return result;
+    },
+                       state);
 }
 
 SandBox::SandBoxResult CleanupSomeJob::run()

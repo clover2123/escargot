@@ -60,7 +60,7 @@ ObjectStructurePropertyName::ObjectStructurePropertyName(const Value& value)
 ObjectStructurePropertyName::ObjectStructurePropertyName(ExecutionState& state, const Value& valueIn)
 {
     Value value = valueIn.toPrimitive(state, Value::PreferString);
-    ASSERT(!state.hasPendingException());
+    RETURN_IF_PENDING_EXCEPTION
     if (UNLIKELY(value.isSymbol())) {
         m_data = (size_t)value.asSymbol();
         return;
@@ -218,8 +218,11 @@ ObjectPropertyDescriptor::ObjectPropertyDescriptor(ExecutionState& state, Object
     m_property = NotPresent;
     const StaticStrings* strings = &state.context()->staticStrings();
     auto desc = obj->get(state, ObjectPropertyName(strings->enumerable));
-    if (desc.hasValue())
-        setEnumerable(desc.value(state, obj).toBoolean(state));
+    if (desc.hasValue()) {
+        Value val = desc.value(state, obj);
+        RETURN_IF_PENDING_EXCEPTION
+        setEnumerable(val.toBoolean(state));
+    }
     desc = obj->get(state, ObjectPropertyName(strings->configurable));
     if (desc.hasValue())
         setConfigurable(desc.value(state, obj).toBoolean(state));
@@ -242,8 +245,7 @@ ObjectPropertyDescriptor::ObjectPropertyDescriptor(ExecutionState& state, Object
     if (desc.hasValue()) {
         Value getter = desc.value(state, obj);
         if (!getter.isCallable() && !getter.isUndefined()) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Getter must be a function or undefined");
-            ASSERT_NOT_REACHED();
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "Getter must be a function or undefined");
         } else {
             m_isDataProperty = false;
             m_getterSetter = JSGetterSetter(getter, Value(Value::EmptyValue));
@@ -254,8 +256,7 @@ ObjectPropertyDescriptor::ObjectPropertyDescriptor(ExecutionState& state, Object
     if (desc.hasValue()) {
         Value setter = desc.value(state, obj);
         if (!setter.isCallable() && !setter.isUndefined()) {
-            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Setter must be a function or undefined");
-            ASSERT_NOT_REACHED();
+            THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "Setter must be a function or undefined");
         } else {
             if (m_isDataProperty) {
                 m_isDataProperty = false;
@@ -267,8 +268,7 @@ ObjectPropertyDescriptor::ObjectPropertyDescriptor(ExecutionState& state, Object
     }
 
     if (!m_isDataProperty && (hasWritable || hasValue)) {
-        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute");
-        ASSERT_NOT_REACHED();
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute");
     }
 
     ASSERT(checkProperty());
@@ -524,6 +524,7 @@ bool Object::isConcatSpreadable(ExecutionState& state)
     }
     // Let spreadable be Get(O, @@isConcatSpreadable).
     Value spreadable = get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().isConcatSpreadable)).value(state, this);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     // If spreadable is not undefined, return ToBoolean(spreadable).
     if (!spreadable.isUndefined()) {
         return spreadable.toBoolean(state);
@@ -1219,6 +1220,7 @@ static Object* internalFastToObjectForGetMethodGetV(ExecutionState& state, const
 Value Object::getMethod(ExecutionState& state, const Value& O, const ObjectPropertyName& propertyName)
 {
     Object* obj = internalFastToObjectForGetMethodGetV(state, O);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     auto r = obj->getMethod(state, propertyName);
     if (r) {
         return Value(r.value());
@@ -1230,6 +1232,7 @@ Optional<Object*> Object::getMethod(ExecutionState& state, const ObjectPropertyN
 {
     // 2. Let func be GetV(O, P).
     Value func = get(state, propertyName).value(state, this);
+    RETURN_NULL_IF_PENDING_EXCEPTION
     // 4. If func is either undefined or null, return undefined.
     if (func.isUndefinedOrNull()) {
         return nullptr;
@@ -1260,14 +1263,17 @@ Object* Object::getPrototypeFromConstructor(ExecutionState& state, Object* const
     } else {
         // Let proto be ? Get(constructor, "prototype").
         proto = constructor->get(state, ObjectPropertyName(state.context()->staticStrings().prototype)).value(state, constructor);
+        RETURN_NULL_IF_PENDING_EXCEPTION
     }
 
     // If Type(proto) is not Object, then
     if (!proto.isObject()) {
         // Let realm be ? GetFunctionRealm(constructor).
         // Set proto to realm's intrinsic object named intrinsicDefaultProto.
-        proto = intrinsicDefaultProtoGetter(state, constructor->getFunctionRealm(state));
-        ASSERT(!state.hasPendingException());
+        Context* c = constructor->getFunctionRealm(state);
+        RETURN_NULL_IF_PENDING_EXCEPTION
+        proto = intrinsicDefaultProtoGetter(state, c);
+        RETURN_NULL_IF_PENDING_EXCEPTION
     } else {
         proto.asObject()->markAsPrototypeObject(state);
     }
@@ -1304,6 +1310,7 @@ bool Object::setIntegrityLevel(ExecutionState& state, Object* O, bool isSealed)
 {
     // Let status be ? O.[[PreventExtensions]]().
     bool status = O->preventExtensions(state);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     // If status is false, return false.
     if (!status) {
         return false;
@@ -1323,6 +1330,7 @@ bool Object::setIntegrityLevel(ExecutionState& state, Object* O, bool isSealed)
                 newDesc.setConfigurable(false);
 
                 O->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, keys[i]), newDesc);
+                RETURN_ZERO_IF_PENDING_EXCEPTION
             }
         }
     } else {
@@ -1342,6 +1350,7 @@ bool Object::setIntegrityLevel(ExecutionState& state, Object* O, bool isSealed)
                     }
                     // Perform ? DefinePropertyOrThrow(O, k, desc).
                     O->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, keys[i]), newDesc);
+                    RETURN_ZERO_IF_PENDING_EXCEPTION
                 }
             }
         }
@@ -1406,12 +1415,14 @@ bool Object::hasInstance(ExecutionState& state, Value O)
     }
     // Let P be Get(C, "prototype").
     Value P = C->get(state, state.context()->staticStrings().prototype).value(state, C);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     // If Type(P) is not Object, throw a TypeError exception.
     if (!P.isObject()) {
         THROW_BUILTIN_ERROR_RETURN_ZERO(state, ErrorCode::TypeError, ErrorObject::Messages::InstanceOf_InvalidPrototypeProperty);
     }
     // Repeat
     O = O.asObject()->getPrototype(state);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     while (!O.isNull()) {
         // If O is null, return false.
         // If SameValue(P, O) is true, return true.
@@ -1420,6 +1431,7 @@ bool Object::hasInstance(ExecutionState& state, Value O)
         }
         // Let O be O.[[GetPrototypeOf]]().
         O = O.asObject()->getPrototype(state);
+        RETURN_ZERO_IF_PENDING_EXCEPTION
     }
     return false;
 }
@@ -1504,6 +1516,7 @@ bool Object::isCompatiblePropertyDescriptor(ExecutionState& state, bool extensib
 void Object::setThrowsException(ExecutionState& state, const ObjectPropertyName& P, const Value& v, const Value& receiver)
 {
     if (UNLIKELY(!set(state, P, v, receiver))) {
+        RETURN_IF_PENDING_EXCEPTION
         THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, P.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
     }
 }
@@ -1511,6 +1524,7 @@ void Object::setThrowsException(ExecutionState& state, const ObjectPropertyName&
 void Object::setThrowsExceptionWhenStrictMode(ExecutionState& state, const ObjectPropertyName& P, const Value& v, const Value& receiver)
 {
     if (UNLIKELY(!set(state, P, v, receiver)) && state.inStrictMode()) {
+        RETURN_IF_PENDING_EXCEPTION
         THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, P.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
     }
 }
@@ -1555,6 +1569,9 @@ ValueVector Object::createListFromArrayLike(ExecutionState& state, Value obj, ui
     // Let len be ? LengthOfArrayLike(obj).
     Object* o = obj.asObject();
     auto len = o->length(state);
+    if (UNLIKELY(state.hasPendingException())) {
+        return ValueVector();
+    }
 
     // Let list be an empty List.
     // Let index be 0.
@@ -1566,6 +1583,9 @@ ValueVector Object::createListFromArrayLike(ExecutionState& state, Value obj, ui
     while (index < len) {
         // Let next be Get(obj, indexName).
         Value next = o->getIndexedProperty(state, Value(index)).value(state, o);
+        if (UNLIKELY(state.hasPendingException())) {
+            return ValueVector();
+        }
 
         // If Type(next) is not an element of elementTypes, throw a TypeError exception.
         bool validType = false;
@@ -1640,7 +1660,9 @@ void Object::redefineOwnProperty(ExecutionState& state, const ObjectPropertyName
 uint64_t Object::length(ExecutionState& state)
 {
     // ToLength(Get(obj, "length"))
-    return get(state, state.context()->staticStrings().length).value(state, this).toLength(state);
+    Value len = get(state, state.context()->staticStrings().length).value(state, this);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
+    return len.toLength(state);
 }
 
 bool Object::isArray(ExecutionState& state)
@@ -1769,6 +1791,7 @@ void Object::sort(ExecutionState& state, int64_t length, const std::function<boo
     int64_t i;
     for (i = 0; i < n; i++) {
         setThrowsException(state, ObjectPropertyName(state, Value(i)), selected[i], this);
+        RETURN_IF_PENDING_EXCEPTION
     }
 
     while (i < length) {
@@ -2098,6 +2121,7 @@ Value Object::speciesConstructor(ExecutionState& state, const Value& defaultCons
 {
     ASSERT(isObject());
     Value C = asObject()->get(state, state.context()->staticStrings().constructor).value(state, this);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (C.isUndefined()) {
         return defaultConstructor;
@@ -2108,6 +2132,7 @@ Value Object::speciesConstructor(ExecutionState& state, const Value& defaultCons
     }
 
     Value S = C.asObject()->get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().species)).value(state, C);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (S.isUndefinedOrNull()) {
         return defaultConstructor;
@@ -2124,6 +2149,7 @@ Value Object::speciesConstructor(ExecutionState& state, const Value& defaultCons
 bool Object::isRegExp(ExecutionState& state)
 {
     Value symbol = get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().match)).value(state, this);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
     if (!symbol.isUndefined()) {
         return symbol.toBoolean(state);
     }

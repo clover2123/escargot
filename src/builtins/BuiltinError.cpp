@@ -52,6 +52,7 @@ static Value builtinErrorConstructor(ExecutionState& state, Value thisValue, siz
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->errorPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     ErrorObject* obj = new ErrorObject(state, proto, String::emptyString);
 
     Value message = argv[0];
@@ -81,6 +82,7 @@ static Value builtinErrorConstructor(ExecutionState& state, Value thisValue, siz
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {                                                                                                 \
             return constructorRealm->globalObject()->lowerCaseErrorName##ErrorPrototype();                                                                                                                                                              \
         });                                                                                                                                                                                                                                             \
+        RETURN_VALUE_IF_PENDING_EXCEPTION                                                                                                                                                                                                               \
         ErrorObject* obj = new errorName##ErrorObject(state, proto, String::emptyString);                                                                                                                                                               \
         Value message = argv[0];                                                                                                                                                                                                                        \
         if (!message.isUndefined()) {                                                                                                                                                                                                                   \
@@ -114,6 +116,7 @@ static Value builtinAggregateErrorConstructor(ExecutionState& state, Value thisV
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->aggregateErrorPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     ErrorObject* O = new AggregateErrorObject(state, proto, String::emptyString);
     Value message = argv[1];
     // If message is not undefined, then
@@ -133,6 +136,7 @@ static Value builtinAggregateErrorConstructor(ExecutionState& state, Value thisV
 
     // Let errorsList be ? IterableToList(errors).
     auto errorsList = IteratorObject::iterableToList(state, argv[0]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // Perform ! DefinePropertyOrThrow(O, "errors", PropertyDescriptor { [[Configurable]]: true, [[Enumerable]]: false, [[Writable]]: true, [[Value]]: ! CreateArrayFromList(errorsList) }).
     O->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, String::fromASCII("errors")),
                                         ObjectPropertyDescriptor(Value(Object::createArrayFromList(state, errorsList.size(), errorsList.data())), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectStructurePropertyDescriptor::ConfigurablePresent)));

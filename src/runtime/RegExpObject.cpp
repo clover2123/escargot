@@ -168,6 +168,7 @@ void RegExpObject::init(ExecutionState& state, String* source, String* option)
     Option optionVals = parseOption(state, option);
     RETURN_IF_PENDING_EXCEPTION
     internalInit(state, source, optionVals);
+    RETURN_IF_PENDING_EXCEPTION
     m_optionString = option;
 }
 

@@ -124,6 +124,7 @@ void EnumerateObjectWithDestruction::fillRestElement(ExecutionState& state, Obje
             // check unmarked key and put rest properties
             if (!key.isEmpty()) {
                 value = m_object->getIndexedProperty(state, key).value(state, m_object);
+                RETURN_IF_PENDING_EXCEPTION
                 result->setIndexedProperty(state, key, value);
             }
         }

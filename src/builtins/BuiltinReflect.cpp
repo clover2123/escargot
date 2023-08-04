@@ -89,12 +89,16 @@ static Value builtinReflectDefineProperty(ExecutionState& state, Value thisValue
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 3. Let desc be ToPropertyDescriptor(attributes).
     ObjectPropertyDescriptor desc(state, argv[2].asObject());
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 6. Return target.[[DefineOwnProperty]](key, desc).
-    return Value(target.asObject()->defineOwnProperty(state, key, desc));
+    bool result = target.asObject()->defineOwnProperty(state, key, desc);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.deleteproperty
@@ -110,9 +114,12 @@ static Value builtinReflectDeleteProperty(ExecutionState& state, Value thisValue
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 4. Return target.[[Delete]](key).
-    return Value(target.asObject()->deleteOwnProperty(state, key));
+    bool result = target.asObject()->deleteOwnProperty(state, key);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.get
@@ -128,6 +135,7 @@ static Value builtinReflectGet(ExecutionState& state, Value thisValue, size_t ar
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 4. If receiver is not present, then
     // 4.a. Let receiver be target.
@@ -150,6 +158,7 @@ static Value builtinReflectGetOwnPropertyDescriptor(ExecutionState& state, Value
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 4. Let desc be target.[[GetOwnProperty]](key).
     ObjectGetResult desc = target.asObject()->getOwnProperty(state, key);
@@ -186,9 +195,12 @@ static Value builtinReflectHas(ExecutionState& state, Value thisValue, size_t ar
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 4. Return target.[[HasProperty]](key).
-    return Value(target.asObject()->hasProperty(state, key));
+    auto result = target.asObject()->hasProperty(state, key);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.isextensible
@@ -203,7 +215,9 @@ static Value builtinReflectIsExtensible(ExecutionState& state, Value thisValue, 
     }
 
     // 2. Return target.[[IsExtensible]]().
-    return Value(target.asObject()->isExtensible(state));
+    bool result = target.asObject()->isExtensible(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.preventextensions
@@ -218,7 +232,9 @@ static Value builtinReflectPreventExtensions(ExecutionState& state, Value thisVa
     }
 
     // 2. Return target.[[PreventExtensions]]().
-    return Value(target.asObject()->preventExtensions(state));
+    bool result = target.asObject()->preventExtensions(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.ownkeys
@@ -234,6 +250,7 @@ static Value builtinReflectOwnKeys(ExecutionState& state, Value thisValue, size_
     // 2. Let keys be target.[[OwnPropertyKeys]]().
     // 3. ReturnIfAbrupt(keys).
     auto keys = target.asObject()->ownPropertyKeys(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // 4. Return CreateArrayFromList(keys).
     return Object::createArrayFromList(state, keys.size(), keys.data());
 }
@@ -252,13 +269,16 @@ static Value builtinReflectSet(ExecutionState& state, Value thisValue, size_t ar
 
     // 2. Let key be ToPropertyKey(propertyKey).
     ObjectPropertyName key(state, argv[1]);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 4. If receiver is not present, then
     // 4.a. Let receiver be target.
     Value receiver = argc > 3 ? argv[3] : target;
 
     // 5. Return target.[[Set]](key, V, receiver).
-    return Value(target.asObject()->set(state, key, argv[2], receiver));
+    bool result = target.asObject()->set(state, key, argv[2], receiver);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 // https://www.ecma-international.org/ecma-262/6.0/#sec-reflect.setprototypeof
@@ -279,7 +299,9 @@ static Value builtinReflectSetPrototypeOf(ExecutionState& state, Value thisValue
     }
 
     // 3. Return target.[[SetPrototypeOf]](proto).
-    return Value(target.asObject()->setPrototype(state, proto));
+    bool result = target.asObject()->setPrototype(state, proto);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return Value(result);
 }
 
 void GlobalObject::initializeReflect(ExecutionState& state)

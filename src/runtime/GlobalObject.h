@@ -38,7 +38,8 @@ class FunctionObject;
     if (thisValue.isUndefinedOrNull()) {                                                                                                                                                                                                        \
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().OBJ.string(), true, state.context()->staticStrings().BUILT_IN_METHOD.string(), ErrorObject::Messages::GlobalObject_ThisUndefinedOrNull); \
     }                                                                                                                                                                                                                                           \
-    String* NAME = thisValue.toString(state);
+    String* NAME = thisValue.toString(state);                                                                                                                                                                                                   \
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
 
 #define GLOBALOBJECT_BUILTIN_ARRAYBUFFER(F, objName) \

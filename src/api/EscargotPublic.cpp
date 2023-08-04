@@ -3201,6 +3201,11 @@ bool ValueRef::isUndefined()
     return toImpl(this).isUndefined();
 }
 
+bool ValueRef::isException()
+{
+    return toImpl(this).isException();
+}
+
 bool ValueRef::isPointerValue()
 {
     return toImpl(this).isPointerValue();
@@ -3393,6 +3398,12 @@ ValueRef* ValueRef::createNull()
 ValueRef* ValueRef::createUndefined()
 {
     return reinterpret_cast<ValueRef*>(EncodedValue(Value(Value::Undefined))
+                                           .payload());
+}
+
+ValueRef* ValueRef::createException()
+{
+    return reinterpret_cast<ValueRef*>(EncodedValue(Value(Value::Exception))
                                            .payload());
 }
 

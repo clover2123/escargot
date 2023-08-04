@@ -177,7 +177,7 @@ static Value builtinWASMInstantiate(ExecutionState& state, Value thisValue, size
         WASMOperations::readImportsOfModule(state, module, importObj, &imports);
 
         return Value();
-    });
+    }, );
 
     if (!readImportsResult.error.isEmpty()) {
         // If this operation throws an exception, catch it, reject promise with the exception.

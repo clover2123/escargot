@@ -39,6 +39,7 @@ static Value builtinWeakRefConstructor(ExecutionState& state, Value thisValue, s
     Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
         return constructorRealm->globalObject()->weakRefPrototype();
     });
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     WeakRefObject* weakRef = new WeakRefObject(state, proto, argv[0].asObject());
 
     return weakRef;

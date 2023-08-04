@@ -82,6 +82,7 @@ static Value builtinNumberConstructor(ExecutionState& state, Value thisValue, si
         } else {
             num = argv[0].toNumber(state);
         }
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
 
     if (!newTarget.hasValue()) {
@@ -90,6 +91,7 @@ static Value builtinNumberConstructor(ExecutionState& state, Value thisValue, si
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
             return constructorRealm->globalObject()->numberPrototype();
         });
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         NumberObject* numObj = new NumberObject(state, proto, num);
         return numObj;
     }
@@ -109,6 +111,7 @@ static Value builtinNumberToFixed(ExecutionState& state, Value thisValue, size_t
 
     Value fractionDigits = argv[0];
     int digit = fractionDigits.toInteger(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (digit < 0 || digit > 100) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().Number.string(), true, state.context()->staticStrings().toFixed.string(), ErrorObject::Messages::GlobalObject_RangeError);
     }
@@ -150,6 +153,7 @@ static Value builtinNumberToExponential(ExecutionState& state, Value thisValue, 
 
     Value fractionDigits = argv[0];
     int digit = fractionDigits.toInteger(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (std::isnan(number)) { // 3
         return state.context()->staticStrings().NaN.string();
@@ -196,6 +200,7 @@ static Value builtinNumberToPrecision(ExecutionState& state, Value thisValue, si
     }
 
     int p = precision.toInteger(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     if (std::isnan(number)) {
         return state.context()->staticStrings().NaN.string();
@@ -235,6 +240,7 @@ static Value builtinNumberToString(ExecutionState& state, Value thisValue, size_
     double radix = 10;
     if (argc > 0 && !argv[0].isUndefined()) {
         radix = argv[0].toInteger(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (radix < 2 || radix > 36) {
             THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().Number.string(), true, state.context()->staticStrings().toString.string(), ErrorObject::Messages::GlobalObject_RadixInvalidRange);
         }
@@ -293,6 +299,7 @@ static Value builtinNumberToLocaleString(ExecutionState& state, Value thisValue,
     ObjectGetResult toStrFuncGetResult = thisObject->get(state, ObjectPropertyName(state.context()->staticStrings().toString));
     if (toStrFuncGetResult.hasValue()) {
         Value toStrFunc = toStrFuncGetResult.value(state, thisObject);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (toStrFunc.isCallable()) {
             // toLocaleString() ignores the first argument, unlike toString()
             return Object::call(state, toStrFunc, thisObject, 0, argv);
@@ -337,6 +344,7 @@ static Value builtinNumberIsInteger(ExecutionState& state, Value thisValue, size
     }
 
     double integer = argv[0].toInteger(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (number != integer) {
         return Value(Value::False);
     }
@@ -368,6 +376,7 @@ static Value builtinNumberIsSafeInteger(ExecutionState& state, Value thisValue, 
     }
 
     double integer = argv[0].toInteger(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (number != integer) {
         return Value(Value::False);
     }

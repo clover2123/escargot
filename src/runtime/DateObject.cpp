@@ -208,11 +208,12 @@ void DateObject::setTimeValue(time64_t t)
 void DateObject::setTimeValue(ExecutionState& state, const Value& v)
 {
     Value pv = v.toPrimitive(state);
-    ASSERT(!state.hasPendingException());
+    RETURN_IF_PENDING_EXCEPTION
     if (pv.isNumber()) {
         setTimeValue(DateObject::timeClip(state, pv.asNumber()));
     } else {
         String* istr = v.toString(state);
+        RETURN_IF_PENDING_EXCEPTION
         setTimeValue(parseStringToDate(state, istr));
     }
 }

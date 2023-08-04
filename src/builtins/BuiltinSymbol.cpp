@@ -38,6 +38,7 @@ static Value builtinSymbolConstructor(ExecutionState& state, Value thisValue, si
     if (!(argc == 0 || argv[0].isUndefined())) {
         // Else, let descString be ? ToString(description).
         descString = argv[0].toString(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
     // Return a new unique Symbol value whose [[Description]] value is descString.
     return new Symbol(descString);
@@ -78,6 +79,7 @@ static Value builtinSymbolFor(ExecutionState& state, Value thisValue, size_t arg
 {
     // Let stringKey be ? ToString(key).
     String* stringKey = argv[0].toString(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return Symbol::fromGlobalSymbolRegistry(state.context()->vmInstance(), stringKey);
 }
 

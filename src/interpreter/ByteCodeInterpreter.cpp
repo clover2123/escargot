@@ -56,8 +56,59 @@
 
 #define INT_RETURN_VALUE_IF_PENDING_EXCEPTION     \
     if (UNLIKELY(state->hasPendingException())) { \
+        if (UNLIKELY(originState != state)) {     \
+            state->unsetPendingException();       \
+            originState->setPendingException();   \
+        }                                         \
         return Value(Value::Exception);           \
     }
+
+#define INT_THROW_BUILTIN_ERROR_RETURN_VALUE(...)    \
+    do {                                             \
+        ErrorObject::throwBuiltinError(__VA_ARGS__); \
+        if (UNLIKELY(originState != state)) {        \
+            state->unsetPendingException();          \
+            originState->setPendingException();      \
+        }                                            \
+        return Value(Value::Exception);              \
+    } while (false);
+
+#define INT_THROW_BUILTIN_ERROR_RETURN_NULL(...)     \
+    do {                                             \
+        ErrorObject::throwBuiltinError(__VA_ARGS__); \
+        if (UNLIKELY(originState != state)) {        \
+            state->unsetPendingException();          \
+            originState->setPendingException();      \
+        }                                            \
+        return nullptr;                              \
+    } while (false);
+
+#define INT_THROW_BUILTIN_ERROR_RETURN_ZERO(...)     \
+    do {                                             \
+        ErrorObject::throwBuiltinError(__VA_ARGS__); \
+        if (UNLIKELY(originState != state)) {        \
+            state->unsetPendingException();          \
+            originState->setPendingException();      \
+        }                                            \
+        return 0;                                    \
+    } while (false);
+
+#define INT_THROW_BUILTIN_ERROR_RETURN(...)          \
+    do {                                             \
+        ErrorObject::throwBuiltinError(__VA_ARGS__); \
+        if (UNLIKELY(originState != state)) {        \
+            state->unsetPendingException();          \
+            originState->setPendingException();      \
+        }                                            \
+        return;                                      \
+    } while (false);
+
+#define INT_THROW_EXCEPTION_RETURN_VALUE(state, e) \
+    do {                                           \
+        originState->throwException(e);            \
+        return Value(Value::Exception);            \
+    } while (false)
+
 
 #if defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER) && !defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER_INIT_WITH_NULL)
 extern char FillOpcodeTableAsmLbl[];
@@ -206,6 +257,8 @@ private:
 
 Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock, size_t programCounter, Value* registerFile)
 {
+    ExecutionState* originState = state;
+
     state->m_programCounter = &programCounter;
     {
 #if defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER)
@@ -288,14 +341,15 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     const EncodedValueVectorElement& val = ctx->globalDeclarativeStorage()->at(idx);
                     isCacheWork = true;
                     if (UNLIKELY(val.isEmpty())) {
-                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, ctx->globalDeclarativeRecord()->at(idx).m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                        INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, ctx->globalDeclarativeRecord()->at(idx).m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
                     }
                     registerFile[code->m_registerIndex] = val;
                 }
             }
             if (UNLIKELY(!isCacheWork)) {
-                registerFile[code->m_registerIndex] = InterpreterSlowPath::getGlobalVariableSlowCase(*state, globalObject, slot, byteCodeBlock);
+                Value value = InterpreterSlowPath::getGlobalVariableSlowCase(*state, globalObject, slot, byteCodeBlock);
                 INT_RETURN_VALUE_IF_PENDING_EXCEPTION
+                registerFile[code->m_registerIndex] = value;
             }
             ADD_PROGRAM_COUNTER(GetGlobalVariable);
             NEXT_INSTRUCTION();
@@ -323,10 +377,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     const auto& record = ctx->globalDeclarativeRecord()->at(idx);
                     auto& storage = ctx->globalDeclarativeStorage()->at(idx);
                     if (UNLIKELY(storage.isEmpty())) {
-                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
+                        INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::ReferenceError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::IsNotInitialized);
                     }
                     if (UNLIKELY(!record.m_isMutable)) {
-                        THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::AssignmentToConstantVariable);
+                        INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, record.m_name.string(), false, String::emptyString, ErrorObject::Messages::AssignmentToConstantVariable);
                     }
                     storage = registerFile[code->m_registerIndex];
                 }
@@ -521,6 +575,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ToNumericIncrement* code = (ToNumericIncrement*)programCounter;
             registerFile[code->m_dstIndex] = Value(registerFile[code->m_srcIndex].toNumeric(*state).first);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             registerFile[code->m_storeIndex] = InterpreterSlowPath::incrementOperation(*state, registerFile[code->m_dstIndex]);
             INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ToNumericIncrement);
@@ -542,6 +597,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ToNumericDecrement* code = (ToNumericDecrement*)programCounter;
             registerFile[code->m_dstIndex] = Value(registerFile[code->m_srcIndex].toNumeric(*state).first);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             registerFile[code->m_storeIndex] = InterpreterSlowPath::decrementOperation(*state, registerFile[code->m_dstIndex]);
             INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ToNumericDecrement);
@@ -581,6 +637,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     ArrayObject* arr = reinterpret_cast<ArrayObject*>(obj);
                     if (LIKELY(arr->isFastModeArray())) {
                         uint32_t idx = property.tryToUseAsIndexProperty(*state);
+                        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
                         if (LIKELY(idx < arr->arrayLength(*state))) {
                             registerFile[code->m_storeRegisterIndex] = arr->m_fastModeData[idx].toValue<true>();
                             ADD_PROGRAM_COUNTER(GetObject);
@@ -589,6 +646,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     }
                 } else {
                     registerFile[code->m_storeRegisterIndex] = obj->getIndexedPropertyValue(*state, property, willBeObject);
+                    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
                     ADD_PROGRAM_COUNTER(GetObject);
                     NEXT_INSTRUCTION();
                 }
@@ -606,6 +664,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ArrayObject* arr = willBeObject.asObject()->asArrayObject();
                 if (LIKELY(arr->isFastModeArray())) {
                     uint32_t idx = property.tryToUseAsIndexProperty(*state);
+                    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
                     if (LIKELY(idx < arr->arrayLength(*state))) {
                         arr->m_fastModeData[idx] = registerFile[code->m_loadRegisterIndex];
                         ADD_PROGRAM_COUNTER(SetObjectOperation);
@@ -627,6 +686,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     obj = receiver.asObject();
                 } else {
                     obj = InterpreterSlowPath::fastToObject(*state, receiver);
+                    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
                 }
             }
 
@@ -649,6 +709,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             GetObjectPreComputedCase* code = (GetObjectPreComputedCase*)programCounter;
             InterpreterSlowPath::getObjectPrecomputedCaseOperation(*state, code, registerFile, byteCodeBlock);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(GetObjectPreComputedCase);
             NEXT_INSTRUCTION();
         }
@@ -759,11 +820,13 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
             if (UNLIKELY(!callee.isPointerValue())) {
-                THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+                INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
 
             // Return F.[[Call]](V, argumentsList).
-            registerFile[code->m_resultIndex] = callee.asPointerValue()->call(*state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+            Value result = callee.asPointerValue()->call(*state, Value(), code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
+            registerFile[code->m_resultIndex] = result;
 
             ADD_PROGRAM_COUNTER(Call);
             NEXT_INSTRUCTION();
@@ -780,11 +843,12 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
             if (UNLIKELY(!callee.isPointerValue())) {
-                THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+                INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
 
             // Return F.[[Call]](V, argumentsList).
             registerFile[code->m_resultIndex] = callee.asPointerValue()->call(*state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
 
             ADD_PROGRAM_COUNTER(CallWithReceiver);
             NEXT_INSTRUCTION();
@@ -1007,6 +1071,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ToNumber* code = (ToNumber*)programCounter;
             const Value& val = registerFile[code->m_srcIndex];
             registerFile[code->m_dstIndex] = Value(Value::DoubleToIntConvertibleTestNeeds, val.toNumber(*state));
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ToNumber);
             NEXT_INSTRUCTION();
         }
@@ -1044,6 +1109,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ObjectDefineOwnPropertyOperation* code = (ObjectDefineOwnPropertyOperation*)programCounter;
             InterpreterSlowPath::objectDefineOwnPropertyOperation(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ObjectDefineOwnPropertyOperation);
             NEXT_INSTRUCTION();
         }
@@ -1101,6 +1167,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             UnaryTypeof* code = (UnaryTypeof*)programCounter;
             InterpreterSlowPath::unaryTypeof(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(UnaryTypeof);
             NEXT_INSTRUCTION();
         }
@@ -1110,6 +1177,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             GetObject* code = (GetObject*)programCounter;
             InterpreterSlowPath::getObjectOpcodeSlowCase(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(GetObject);
             NEXT_INSTRUCTION();
         }
@@ -1249,6 +1317,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             Value v = InterpreterSlowPath::tryOperation(state, programCounter, byteCodeBlock, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             if (!v.isEmpty()) {
                 return v;
             }
@@ -1266,13 +1335,14 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             ThrowOperation* code = (ThrowOperation*)programCounter;
-            THROW_EXCEPTION_RETURN_VALUE((*state), registerFile[code->m_registerIndex]);
+            INT_THROW_EXCEPTION_RETURN_VALUE((*state), registerFile[code->m_registerIndex]);
         }
 
         DEFINE_OPCODE(OpenLexicalEnvironment)
             :
         {
             Value v = InterpreterSlowPath::openLexicalEnvironment(state, programCounter, byteCodeBlock, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             if (!v.isEmpty()) {
                 return v;
             }
@@ -1292,6 +1362,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             CreateEnumerateObject* code = (CreateEnumerateObject*)programCounter;
             InterpreterSlowPath::createEnumerateObject(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(CreateEnumerateObject);
             NEXT_INSTRUCTION();
         }
@@ -1368,6 +1439,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             TemplateOperation* code = (TemplateOperation*)programCounter;
             InterpreterSlowPath::templateOperation(*state, state->lexicalEnvironment(), code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(TemplateOperation);
             NEXT_INSTRUCTION();
         }
@@ -1435,7 +1507,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             :
         {
             ThrowStaticErrorOperation* code = (ThrowStaticErrorOperation*)programCounter;
-            THROW_BUILTIN_ERROR_RETURN_VALUE(*state, (ErrorCode)code->m_errorKind, code->m_errorMessage, code->m_templateDataString);
+            INT_THROW_BUILTIN_ERROR_RETURN_VALUE(*state, (ErrorCode)code->m_errorKind, code->m_errorMessage, code->m_templateDataString);
         }
 
         DEFINE_OPCODE(NewOperationWithSpreadElement)
@@ -1468,6 +1540,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 EnumerateObject* enumObj = (EnumerateObject*)iterOrEnum.asPointerValue();
                 result = new Object(*state);
                 enumObj->fillRestElement(*state, result);
+                INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             } else {
                 result = InterpreterSlowPath::restBindOperation(*state, iterOrEnum.asPointerValue()->asIteratorRecord());
                 INT_RETURN_VALUE_IF_PENDING_EXCEPTION
@@ -1494,6 +1567,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ExecutionPause* code = (ExecutionPause*)programCounter;
             InterpreterSlowPath::executionPauseOperation(*state, registerFile, programCounter, byteCodeBlock->m_code.data());
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             return Value();
         }
 
@@ -1538,6 +1612,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             ResolveNameAddress* code = (ResolveNameAddress*)programCounter;
             InterpreterSlowPath::resolveNameAddress(*state, code, registerFile);
+            INT_RETURN_VALUE_IF_PENDING_EXCEPTION
             ADD_PROGRAM_COUNTER(ResolveNameAddress);
             NEXT_INSTRUCTION();
         }
@@ -1654,7 +1729,7 @@ NEVER_INLINE Value InterpreterSlowPath::loadByName(ExecutionState& state, Lexica
 {
     while (env) {
         EnvironmentRecord::GetBindingValueResult result = env->record()->getBindingValue(state, name);
-        INT_RETURN_NULL_IF_PENDING_EXCEPTION
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         if (result.m_hasBindingValue) {
             return result.m_value;
         }
@@ -1727,9 +1802,11 @@ NEVER_INLINE void InterpreterSlowPath::resolveNameAddress(ExecutionState& state,
                 ObjectPropertyName propertyName(code->m_name);
                 auto obj = env->record()->asObjectEnvironmentRecord()->bindingObject();
                 Value unscopables = obj->get(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().unscopables)).value(state, obj);
+                INT_RETURN_IF_PENDING_EXCEPTION
                 if (UNLIKELY(unscopables.isObject() && unscopables.asObject()->get(state, propertyName).value(state, unscopables).toBoolean(state))) {
                     foundUnscopables = true;
                 }
+                INT_RETURN_IF_PENDING_EXCEPTION
             }
             if (!foundUnscopables) {
                 registerFile[code->m_registerIndex] = Value(count);
@@ -1747,6 +1824,7 @@ NEVER_INLINE void InterpreterSlowPath::storeByNameWithAddress(ExecutionState& st
     LexicalEnvironment* env = state.lexicalEnvironment();
     const Value& value = registerFile[code->m_valueRegisterIndex];
     int64_t count = registerFile[code->m_addressRegisterIndex].toNumber(state);
+    INT_RETURN_IF_PENDING_EXCEPTION
     if (count != -1) {
         int64_t idx = 0;
         while (env) {
@@ -1784,6 +1862,7 @@ NEVER_INLINE Value InterpreterSlowPath::plusSlowCase(ExecutionState& state, cons
     // Let lprim be ? ToPrimitive(lval).
     // Let rprim be ? ToPrimitive(rval).
     lval = left.toPrimitive(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     rval = right.toPrimitive(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
 
@@ -1792,11 +1871,15 @@ NEVER_INLINE Value InterpreterSlowPath::plusSlowCase(ExecutionState& state, cons
         // Let lstr be ? ToString(lprim).
         // Let rstr be ? ToString(rprim).
         // Return the string-concatenation of lstr and rstr.
+        if (UNLIKELY(lval.isSymbol() || rval.isSymbol())) {
+            THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, "");
+        }
         ret = RopeString::createRopeString(lval.toString(state), rval.toString(state), &state);
         INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     } else {
         // Let lnum be ? ToNumeric(lprim).
         auto lnum = lval.toNumeric(state);
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         // Let rnum be ? ToNumeric(rprim).
         auto rnum = rval.toNumeric(state);
         INT_RETURN_VALUE_IF_PENDING_EXCEPTION
@@ -1826,6 +1909,7 @@ NEVER_INLINE Value InterpreterSlowPath::minusSlowCase(ExecutionState& state, con
     // Let lnum be ? ToNumeric(lval).
     // Let rnum be ? ToNumeric(rval).
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     // If Type(lnum) is different from Type(rnum), throw a TypeError exception.
@@ -1844,6 +1928,7 @@ NEVER_INLINE Value InterpreterSlowPath::minusSlowCase(ExecutionState& state, con
 NEVER_INLINE Value InterpreterSlowPath::multiplySlowCase(ExecutionState& state, const Value& left, const Value& right)
 {
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
@@ -1859,6 +1944,7 @@ NEVER_INLINE Value InterpreterSlowPath::multiplySlowCase(ExecutionState& state, 
 NEVER_INLINE Value InterpreterSlowPath::divisionSlowCase(ExecutionState& state, const Value& left, const Value& right)
 {
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
@@ -1895,6 +1981,7 @@ NEVER_INLINE Value InterpreterSlowPath::modOperation(ExecutionState& state, cons
         ret = Value(intLeft % intRight);
     } else {
         auto lnum = left.toNumeric(state);
+        INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         auto rnum = right.toNumeric(state);
         INT_RETURN_VALUE_IF_PENDING_EXCEPTION
         if (UNLIKELY(lnum.second != rnum.second)) {
@@ -1940,6 +2027,7 @@ NEVER_INLINE Value InterpreterSlowPath::exponentialOperation(ExecutionState& sta
     Value ret(Value::ForceUninitialized);
 
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
@@ -1975,13 +2063,16 @@ NEVER_INLINE void InterpreterSlowPath::templateOperation(ExecutionState& state, 
 
     StringBuilder builder;
     builder.appendString(s1.toString(state));
+    INT_RETURN_IF_PENDING_EXCEPTION
     builder.appendString(s2.toString(state));
+    INT_RETURN_IF_PENDING_EXCEPTION
     registerFile[code->m_dstIndex] = Value(builder.finalize(&state));
 }
 
 NEVER_INLINE Value InterpreterSlowPath::bitwiseOperationSlowCase(ExecutionState& state, const Value& left, const Value& right, Interpreter::BitwiseOperationKind kind)
 {
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
@@ -2029,6 +2120,7 @@ NEVER_INLINE Value InterpreterSlowPath::bitwiseNotOperationSlowCase(ExecutionSta
 NEVER_INLINE Value InterpreterSlowPath::shiftOperationSlowCase(ExecutionState& state, const Value& left, const Value& right, Interpreter::ShiftOperationKind kind)
 {
     auto lnum = left.toNumeric(state);
+    INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     auto rnum = right.toNumeric(state);
     INT_RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(lnum.second != rnum.second)) {
@@ -2103,6 +2195,7 @@ NEVER_INLINE void InterpreterSlowPath::deleteOperation(ExecutionState& state, Le
         const Value& o = state.makeSuperPropertyReference();
         INT_RETURN_IF_PENDING_EXCEPTION
         Object* obj = o.toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
 
         THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::ReferenceError, name.toObjectStructurePropertyName(state).toExceptionString(), false, String::emptyString, "ReferenceError: Unsupported reference to 'super'");
     } else {
@@ -2111,9 +2204,11 @@ NEVER_INLINE void InterpreterSlowPath::deleteOperation(ExecutionState& state, Le
 
         auto name = ObjectPropertyName(state, p);
         Object* obj = o.toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
 
         bool result = obj->deleteOwnProperty(state, name);
         if (!result && state.inStrictMode()) {
+            INT_RETURN_IF_PENDING_EXCEPTION
             Object::throwCannotDeleteError(state, name.toObjectStructurePropertyName(state));
             INT_RETURN_FOR_EXCEPTION
         }
@@ -2185,6 +2280,7 @@ ALWAYS_INLINE bool abstractLeftIsLessThanRightNumeric(ExecutionState& state, con
 
     // Let nx be ? ToNumeric(px). NOTE: Because px and py are primitive values evaluation order is not important.
     auto nx = lval.toNumeric(state);
+    INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     // Let ny be ? ToNumeric(py).
     auto ny = rval.toNumeric(state);
     INT_RETURN_ZERO_IF_PENDING_EXCEPTION
@@ -2216,10 +2312,12 @@ NEVER_INLINE bool InterpreterSlowPath::abstractLeftIsLessThanRightSlowCase(Execu
     Value lval, rval;
     if (switched) {
         rval = right.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
         lval = left.toPrimitive(state, Value::PreferNumber);
         INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     } else {
         lval = left.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
         rval = right.toPrimitive(state, Value::PreferNumber);
         INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     }
@@ -2250,10 +2348,12 @@ NEVER_INLINE bool InterpreterSlowPath::abstractLeftIsLessThanEqualRightSlowCase(
     Value lval, rval;
     if (switched) {
         rval = right.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
         lval = left.toPrimitive(state, Value::PreferNumber);
         INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     } else {
         lval = left.toPrimitive(state, Value::PreferNumber);
+        INT_RETURN_ZERO_IF_PENDING_EXCEPTION
         rval = right.toPrimitive(state, Value::PreferNumber);
         INT_RETURN_ZERO_IF_PENDING_EXCEPTION
     }
@@ -2287,6 +2387,7 @@ NEVER_INLINE void InterpreterSlowPath::getObjectPrecomputedCaseOperation(Executi
         orgObj = receiver.asObject();
     } else {
         orgObj = fastToObject(state, receiver);
+        INT_RETURN_IF_PENDING_EXCEPTION
     }
 
     if (code->m_inlineCacheMode == GetObjectPreComputedCase::Complex) {
@@ -2531,6 +2632,7 @@ ALWAYS_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperation(Execut
     Object* obj;
     if (UNLIKELY(!willBeObject.isObject())) {
         obj = willBeObject.toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
         if (willBeObject.isPrimitive()) {
             obj->preventExtensions(state);
         }
@@ -2610,8 +2712,11 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
 {
     if (code->m_isLength && originalObject->isArrayObject()) {
         if (LIKELY(originalObject->asArrayObject()->isFastModeArray())) {
-            if (!originalObject->asArrayObject()->setArrayLength(state, value) && state.inStrictMode()) {
-                THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, code->m_propertyName.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
+            if (!originalObject->asArrayObject()->setArrayLength(state, value)) {
+                INT_RETURN_IF_PENDING_EXCEPTION
+                if (state.inStrictMode()) {
+                    THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, code->m_propertyName.toExceptionString(), false, String::emptyString, ErrorObject::Messages::DefineProperty_NotWritable);
+                }
             }
         } else {
             originalObject->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, code->m_propertyName), value, willBeObject);
@@ -2735,6 +2840,7 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperationCacheMis
         block->m_inlineCacheDataSize += sizeof(size_t) * newItem.m_cachedhiddenClassChainLength;
         currentCodeSizeTotal += sizeof(size_t) * newItem.m_cachedhiddenClassChainLength;
         bool s = orgObject->set(state, ObjectPropertyName(state, code->m_propertyName), value, willBeObject);
+        INT_RETURN_IF_PENDING_EXCEPTION
         if (UNLIKELY(!s)) {
             inlineCache->m_cache.clear();
             code->m_inlineCache = nullptr;
@@ -3004,13 +3110,17 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
     SandBox::StackTraceDataVector stackTraceDataVector;
 
     if (LIKELY(!code->m_isCatchResumeProcess && !code->m_isFinallyResumeProcess)) {
-        try {
+        // try
+        {
             ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
                 state.m_onTry = in;
             });
 
             size_t newPc = programCounter + sizeof(TryOperation);
             Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+        }
+
+        if (!newState->hasPendingException()) {
             if (newState->inExecutionStopState()) {
                 return Value();
             }
@@ -3027,7 +3137,8 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
                 newState = new ExecutionState(state, state->lexicalEnvironment(), state->inStrictMode());
                 newState->ensureRareData()->m_controlFlowRecord = state->rareData()->m_controlFlowRecord;
             }
-        } catch (const Value& val) {
+        } else {
+            const Value& val = newState->detachPendingException();
             if (UNLIKELY(code->m_isTryResumeProcess)) {
 #ifdef ESCARGOT_DEBUGGER
                 Debugger::updateStopState(state->context()->debugger(), newState, ESCARGOT_DEBUGGER_ALWAYS_STOP);
@@ -3056,32 +3167,40 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
             } else {
                 stackTraceDataVector.clear();
                 registerFile[code->m_catchedValueRegisterIndex] = val;
-                try {
+                {
+                    // catch
                     ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
                         state.m_onCatch = in;
                     });
                     Interpreter::interpret(newState, byteCodeBlock, (size_t)codeBuffer + code->m_catchPosition, registerFile);
+                }
+                if (!newState->hasPendingException()) {
                     if (newState->inExecutionStopState()) {
                         return Value();
                     }
-                } catch (const Value& val) {
-                    stackTraceDataVector = newState->context()->vmInstance()->currentSandBox()->stackTraceDataVector();
+                } else {
+                    const Value& val = newState->detachPendingException();
+                    stackTraceDataVector = std::move(newState->context()->vmInstance()->currentSandBox()->stackTraceDataVector());
                     newState->rareData()->m_controlFlowRecord->back() = new ControlFlowRecord(ControlFlowRecord::NeedsThrow, val);
                 }
             }
         }
     } else if (code->m_isCatchResumeProcess) {
-        try {
+        {
+            // catch
             ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
                 state.m_onCatch = in;
             });
             Interpreter::interpret(newState, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
+        }
+        if (!newState->hasPendingException()) {
             if (UNLIKELY(newState->inExecutionStopState() || newState->parent()->inExecutionStopState())) {
                 return Value();
             }
             state = newState->parent();
             code = (TryOperation*)(byteCodeBlock->m_code.data() + newState->rareData()->m_programCounterWhenItStoppedByYield);
-        } catch (const Value& val) {
+        } else {
+            const Value& val = newState->detachPendingException();
             state = newState->parent();
             code = (TryOperation*)(byteCodeBlock->m_code.data() + newState->rareData()->m_programCounterWhenItStoppedByYield);
             state->rareData()->m_controlFlowRecord->back() = new ControlFlowRecord(ControlFlowRecord::NeedsThrow, val);
@@ -3089,10 +3208,15 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
     }
 
     if (code->m_isFinallyResumeProcess) {
+        // finally
         ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
             state.m_onFinally = in;
         });
         Interpreter::interpret(newState, byteCodeBlock, programCounter + sizeof(TryOperation), registerFile);
+        if (UNLIKELY(newState->hasPendingException())) {
+            state->setPendingException();
+            return Value(Value::Exception);
+        }
         if (newState->inExecutionStopState() || newState->parent()->inExecutionStopState()) {
             return Value();
         }
@@ -3108,10 +3232,15 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
             newState = new ExecutionState(state, state->lexicalEnvironment(), state->inStrictMode());
             newState->ensureRareData()->m_controlFlowRecord = state->rareData()->m_controlFlowRecord;
         }
+        // finally
         ExecutionStateVariableChanger<void (*)(ExecutionState&, bool)> changer(*state, [](ExecutionState& state, bool in) {
             state.m_onFinally = in;
         });
         Interpreter::interpret(newState, byteCodeBlock, (size_t)codeBuffer + code->m_tryCatchEndPosition, registerFile);
+        if (UNLIKELY(newState->hasPendingException())) {
+            state->setPendingException();
+            return Value(Value::Exception);
+        }
         if (newState->inExecutionStopState()) {
             return Value();
         }
@@ -3138,10 +3267,9 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
                 return Value(Value::EmptyValue);
             }
         } else if (record->reason() == ControlFlowRecord::NeedsThrow) {
-            state->context()->vmInstance()->currentSandBox()->rethrowPreviouslyCaughtException(*state, record->value(), stackTraceDataVector);
-            ASSERT_NOT_REACHED();
-            // never get here. but I add return statement for removing compile warning
-            return Value(Value::EmptyValue);
+            state->context()->vmInstance()->currentSandBox()->rethrowPreviouslyCaughtException(*state, record->value(), std::move(stackTraceDataVector));
+            state->setPendingException();
+            return Value(Value::Exception);
         } else {
             ASSERT(record->reason() == ControlFlowRecord::NeedsReturn);
             record->m_count--;
@@ -3188,6 +3316,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
                 }
 
                 protoParent = superClass.asObject()->get(state, ObjectPropertyName(state.context()->staticStrings().prototype)).value(state, Value());
+                INT_RETURN_IF_PENDING_EXCEPTION
 
                 if (!protoParent.isObject() && !protoParent.isNull()) {
                     THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::TypeError, ErrorObject::Messages::Class_Prototype_Is_Not_Object_Nor_Null);
@@ -3223,6 +3352,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
             if (!heritagePresent) {
                 Value argv[] = { String::emptyString, String::emptyString };
                 auto functionSource = FunctionObject::createDynamicFunctionScript(state, state.context()->staticStrings().constructor, 1, &argv[0], argv[1], true, false, false, false, true);
+                INT_RETURN_IF_PENDING_EXCEPTION
                 functionSource.codeBlock->setAsClassConstructor();
                 constructor = new ScriptClassConstructorFunctionObject(state, constructorParent.asObject(),
                                                                        functionSource.codeBlock, functionSource.outerEnvironment, proto,
@@ -3231,6 +3361,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
                 Value argv[] = { state.context()->staticStrings().lazyDotDotDotArgs().string(),
                                  state.context()->staticStrings().lazySuperDotDotDotArgs().string() };
                 auto functionSource = FunctionObject::createDynamicFunctionScript(state, state.context()->staticStrings().constructor, 1, &argv[0], argv[1], true, false, false, true, true);
+                INT_RETURN_IF_PENDING_EXCEPTION
                 functionSource.codeBlock->setAsClassConstructor();
                 functionSource.codeBlock->setAsDerivedClassConstructor();
                 constructor = new ScriptClassConstructorFunctionObject(state, constructorParent.asObject(),
@@ -3275,6 +3406,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
             Value v = registerFile[code->m_staticPropertySetRegisterIndex];
             if (!v.isUndefined()) {
                 v = v.asPointerValue()->asScriptVirtualArrowFunctionObject()->call(state, Value(classConstructor), classConstructor);
+                INT_RETURN_IF_PENDING_EXCEPTION
             }
             classConstructor->defineOwnPropertyThrowsException(state,
                                                                ObjectPropertyName(state, std::get<0>(classConstructor->m_staticFieldInitData[code->m_staticFieldSetIndex])),
@@ -3284,6 +3416,7 @@ NEVER_INLINE void InterpreterSlowPath::initializeClassOperation(ExecutionState& 
             auto type = code->m_setStaticPrivateFieldType;
             if (type == ScriptClassConstructorFunctionObject::PrivateFieldValue && !v.isUndefined()) {
                 v = v.asPointerValue()->asScriptVirtualArrowFunctionObject()->call(state, Value(classConstructor), classConstructor);
+                INT_RETURN_IF_PENDING_EXCEPTION
             }
             bool isGetter = type == ScriptClassConstructorFunctionObject::PrivateFieldGetter;
             bool isSetter = type == ScriptClassConstructorFunctionObject::PrivateFieldSetter;
@@ -3344,6 +3477,7 @@ NEVER_INLINE void InterpreterSlowPath::complexSetObjectOperation(ExecutionState&
         //    Let succeeded be ? base.[[Set]](GetReferencedName(V), W, GetThisValue(V)).
         //    If succeeded is false and IsStrictReference(V) is true, throw a TypeError exception.
         bool result = object.toObject(state)->set(state, ObjectPropertyName(state, registerFile[code->m_propertyNameIndex]), registerFile[code->m_loadRegisterIndex], thisValue);
+        INT_RETURN_IF_PENDING_EXCEPTION
         if (UNLIKELY(!result)) {
             // testing is strict mode || IsStrictReference(V)
             // IsStrictReference returns true if code is class method
@@ -3354,13 +3488,16 @@ NEVER_INLINE void InterpreterSlowPath::complexSetObjectOperation(ExecutionState&
     } else {
         ASSERT(code->m_type == ComplexSetObjectOperation::Private || code->m_type == ComplexSetObjectOperation::PrivateWithoutOuterClass);
         const Value& object = registerFile[code->m_objectRegisterIndex];
-        object.toObject(state)->setPrivateMember(state, state.findPrivateMemberContextObject(), code->m_propertyName, registerFile[code->m_loadRegisterIndex],
-                                                 code->m_type == ComplexSetObjectOperation::Private);
+        Object* obj = object.toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
+        obj->setPrivateMember(state, state.findPrivateMemberContextObject(), code->m_propertyName, registerFile[code->m_loadRegisterIndex],
+                              code->m_type == ComplexSetObjectOperation::Private);
     }
 }
 
 NEVER_INLINE void InterpreterSlowPath::complexGetObjectOperation(ExecutionState& state, ComplexGetObjectOperation* code, Value* registerFile, ByteCodeBlock* byteCodeBlock)
 {
+    Object* obj;
     if (code->m_type == ComplexGetObjectOperation::Super) {
         // find `this` value for receiver
         Value thisValue(Value::ForceUninitialized);
@@ -3373,13 +3510,17 @@ NEVER_INLINE void InterpreterSlowPath::complexGetObjectOperation(ExecutionState&
             thisValue = registerFile[byteCodeBlock->m_requiredOperandRegisterNumber];
         }
 
-        Value object = registerFile[code->m_objectRegisterIndex];
-        registerFile[code->m_storeRegisterIndex] = object.toObject(state)->get(state, ObjectPropertyName(state, registerFile[code->m_propertyNameIndex])).value(state, thisValue);
+        obj = registerFile[code->m_objectRegisterIndex].toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
+        registerFile[code->m_storeRegisterIndex] = obj->get(state, ObjectPropertyName(state, registerFile[code->m_propertyNameIndex])).value(state, thisValue);
     } else {
         ASSERT(code->m_type == ComplexGetObjectOperation::Private || code->m_type == ComplexGetObjectOperation::PrivateWithoutOuterClass);
-        const Value& object = registerFile[code->m_objectRegisterIndex];
-        registerFile[code->m_storeRegisterIndex] = object.toObject(state)->getPrivateMember(state, state.findPrivateMemberContextObject(), code->m_propertyName,
-                                                                                            code->m_type == ComplexGetObjectOperation::Private);
+        obj = registerFile[code->m_objectRegisterIndex].toObject(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
+        Object* privateContextObject = state.findPrivateMemberContextObject();
+        INT_RETURN_IF_PENDING_EXCEPTION
+        registerFile[code->m_storeRegisterIndex] = obj->getPrivateMember(state, privateContextObject, code->m_propertyName,
+                                                                         code->m_type == ComplexGetObjectOperation::Private);
     }
 }
 
@@ -3402,6 +3543,10 @@ NEVER_INLINE Value InterpreterSlowPath::openLexicalEnvironment(ExecutionState*& 
 
         // setup new env
         EnvironmentRecord* newRecord = new ObjectEnvironmentRecord(registerFile[code->m_withOrThisRegisterIndex].toObject(*state));
+        if (UNLIKELY(state->hasPendingException())) {
+            return Value(Value::Exception);
+        }
+
         LexicalEnvironment* newEnv = new LexicalEnvironment(newRecord, env);
 
         newState = new ExecutionState(state, newEnv, state->inStrictMode());
@@ -3420,6 +3565,11 @@ NEVER_INLINE Value InterpreterSlowPath::openLexicalEnvironment(ExecutionState*& 
     char* codeBuffer = byteCodeBlock->m_code.data();
 
     Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+    // check exception
+    if (UNLIKELY(newState->hasPendingException())) {
+        state->setPendingException();
+        return Value(Value::Exception);
+    }
 
     if (newState->inExecutionStopState() || (!inWithStatement && newState->parent()->inExecutionStopState())) {
         return Value();
@@ -3549,6 +3699,12 @@ NEVER_INLINE Value InterpreterSlowPath::blockOperation(ExecutionState*& state, B
     }
 
     Interpreter::interpret(newState, byteCodeBlock, newPc, registerFile);
+    // check exception
+    if (UNLIKELY(newState->hasPendingException())) {
+        state->setPendingException();
+        return Value(Value::Exception);
+    }
+
     if (newState->inExecutionStopState() || (inPauserResumeProcess && newState->parent()->inExecutionStopState())) {
         return Value();
     }
@@ -3600,10 +3756,10 @@ NEVER_INLINE void InterpreterSlowPath::binaryInOperation(ExecutionState& state, 
 
     if (UNLIKELY(code->m_extraData)) {
         registerFile[code->m_dstIndex] = Value(right.toObject(state)->hasPrivateMember(state, state.findPrivateMemberContextObject(), AtomicString(state, left.asString()), false));
-        INT_RETURN_IF_PENDING_EXCEPTION
     } else {
         registerFile[code->m_dstIndex] = Value(right.toObject(state)->hasProperty(state, ObjectPropertyName(state, left)));
     }
+    INT_RETURN_IF_PENDING_EXCEPTION
 }
 
 NEVER_INLINE Value InterpreterSlowPath::constructOperation(ExecutionState& state, const Value& constructor, const size_t argc, Value* argv)
@@ -3851,22 +4007,25 @@ NEVER_INLINE void InterpreterSlowPath::callFunctionComplexCase(ExecutionState& s
         // Let specifierString be ToString(specifier).
         String* specifierString = String::emptyString;
         // IfAbruptRejectPromise(specifierString, promiseCapability).
-        try {
+        {
             specifierString = specifier.toString(state);
+            INT_RETURN_IF_PENDING_EXCEPTION
 
             if (code->m_argumentCount == 2) {
                 moduleType = static_cast<Platform::ModuleType>(evaluateImportAssertionOperation(state, registerFile[code->m_argumentsStartIndex + 1]));
                 // FIXME EXCEPTION
-                INT_RETURN_IF_PENDING_EXCEPTION
+                if (UNLIKELY(state.hasPendingException())) {
+                    Value thrownValue = state.detachPendingException();
+                    // If value is an abrupt completion,
+                    // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
+                    Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
+                    INT_RETURN_IF_PENDING_EXCEPTION
+
+                    // Return capability.[[Promise]].
+                    registerFile[code->m_resultIndex] = promiseCapability.m_promise;
+                    break;
+                }
             }
-        } catch (const Value& v) {
-            Value thrownValue = v;
-            // If value is an abrupt completion,
-            // Perform ? Call(capability.[[Reject]], undefined, « value.[[Value]] »).
-            Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &thrownValue);
-            // Return capability.[[Promise]].
-            registerFile[code->m_resultIndex] = promiseCapability.m_promise;
-            break;
         }
 
         // Perform ! HostImportModuleDynamically(referencingScriptOrModule, specifierString, promiseCapability).
@@ -3917,6 +4076,7 @@ NEVER_INLINE void InterpreterSlowPath::spreadFunctionArguments(ExecutionState& s
 NEVER_INLINE void InterpreterSlowPath::createEnumerateObject(ExecutionState& state, CreateEnumerateObject* code, Value* registerFile)
 {
     Object* obj = registerFile[code->m_objectRegisterIndex].toObject(state);
+    INT_RETURN_IF_PENDING_EXCEPTION
     bool isDestruction = code->m_isDestruction;
 
     EnumerateObject* enumObj;
@@ -3983,6 +4143,7 @@ NEVER_INLINE void InterpreterSlowPath::executionPauseOperation(ExecutionState& s
         size_t tailDataLength = code->m_awaitData.m_tailDataLength;
 
         ScriptAsyncFunctionObject::awaitOperationBeforePause(state, executionPauser, awaitValue, executionPauser->sourceObject());
+        INT_RETURN_IF_PENDING_EXCEPTION
         ExecutionPauser::pause(state, awaitValue, tailDataPosition, tailDataLength, nextProgramCounter, code->m_awaitData.m_dstIndex, code->m_awaitData.m_dstStateIndex, ExecutionPauser::PauseReason::Await);
     } else if (code->m_reason == ExecutionPause::GeneratorsInitialize) {
         ExecutionPauser* executionPauser = state.executionPauser();
@@ -4096,6 +4257,7 @@ NEVER_INLINE void InterpreterSlowPath::objectDefineOwnPropertyOperation(Executio
     const Value& value = registerFile[code->m_loadRegisterIndex];
 
     Value propertyStringOrSymbol = property.isSymbol() ? property : property.toString(state);
+    INT_RETURN_IF_PENDING_EXCEPTION
 
     if (code->m_redefineFunctionOrClassName) {
         ASSERT(value.isFunction());
@@ -4253,10 +4415,12 @@ NEVER_INLINE void InterpreterSlowPath::createSpreadArrayObject(ExecutionState& s
     size_t i = 0;
     while (true) {
         auto next = IteratorObject::iteratorStep(state, iteratorRecord);
+        INT_RETURN_IF_PENDING_EXCEPTION
         if (!next.hasValue()) {
             break;
         }
         Value value = IteratorObject::iteratorValue(state, next.value());
+        INT_RETURN_IF_PENDING_EXCEPTION
         spreadArray->setIndexedProperty(state, Value(i++), value, spreadArray);
     }
     registerFile[code->m_registerIndex] = spreadArray;
@@ -4286,6 +4450,7 @@ NEVER_INLINE void InterpreterSlowPath::defineObjectGetterSetterOperation(Executi
 NEVER_INLINE void InterpreterSlowPath::defineObjectGetterSetter(ExecutionState& state, ObjectDefineGetterSetter* code, ByteCodeBlock* byteCodeBlock, Value* registerFile)
 {
     Object* object = registerFile[code->m_objectRegisterIndex].toObject(state);
+    INT_RETURN_IF_PENDING_EXCEPTION
     const size_t minCacheFillCount = 2;
     if (object->structure() == code->m_inlineCachedStructureBefore) {
         JSGetterSetter* gs;
@@ -4387,6 +4552,7 @@ NEVER_INLINE void InterpreterSlowPath::unaryTypeof(ExecutionState& state, UnaryT
     Value val;
     if (code->m_id.string()->length()) {
         val = loadByName(state, state.lexicalEnvironment(), code->m_id, false);
+        INT_RETURN_IF_PENDING_EXCEPTION
     } else {
         val = registerFile[code->m_srcIndex];
     }
@@ -4446,18 +4612,16 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
             IteratorRecord* iteratorRecord = registerFile[code->m_iteratorCloseData.m_iterRegisterIndex].asPointerValue()->asIteratorRecord();
             Object* iterator = iteratorRecord->m_iterator;
             Value returnFunction = iterator->get(state, ObjectPropertyName(state.context()->staticStrings().stringReturn)).value(state, iterator);
+            INT_RETURN_IF_PENDING_EXCEPTION
             if (returnFunction.isUndefined()) {
                 ADD_PROGRAM_COUNTER(IteratorOperation);
                 return;
             }
 
-            Value innerResult;
             bool innerResultHasException = false;
-            try {
-                innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
-                INT_RETURN_IF_PENDING_EXCEPTION
-            } catch (const Value& e) {
-                innerResult = e;
+            Value innerResult = Object::call(state, returnFunction, iterator, 0, nullptr);
+            if (UNLIKELY(state.hasPendingException())) {
+                innerResult = state.detachPendingException();
                 innerResultHasException = true;
             }
 
@@ -4483,23 +4647,19 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
         IteratorRecord* iteratorRecord = registerFile[code->m_iteratorBindData.m_iterRegisterIndex].asPointerValue()->asIteratorRecord();
 
         if (!iteratorRecord->m_done) {
-            try {
-                nextResult = IteratorObject::iteratorStep(state, iteratorRecord);
-            } catch (const Value& e) {
-                Value exceptionValue = e;
+            nextResult = IteratorObject::iteratorStep(state, iteratorRecord);
+            if (UNLIKELY(state.hasPendingException())) {
                 iteratorRecord->m_done = true;
-                THROW_EXCEPTION_RETURN(state, exceptionValue);
+                return;
             }
 
             if (!nextResult.hasValue()) {
                 iteratorRecord->m_done = true;
             } else {
-                try {
-                    value = IteratorObject::iteratorValue(state, nextResult.value());
-                } catch (const Value& e) {
-                    Value exceptionValue = e;
+                value = IteratorObject::iteratorValue(state, nextResult.value());
+                if (UNLIKELY(state.hasPendingException())) {
                     iteratorRecord->m_done = true;
-                    THROW_EXCEPTION_RETURN(state, exceptionValue);
+                    return;
                 }
             }
         }
@@ -4511,8 +4671,9 @@ NEVER_INLINE void InterpreterSlowPath::iteratorOperation(ExecutionState& state, 
             registerFile[code->m_iteratorTestDoneData.m_dstRegisterIndex] = Value(
                 registerFile[code->m_iteratorTestDoneData.m_iteratorRecordOrObjectRegisterIndex].asPointerValue()->asIteratorRecord()->m_done);
         } else {
-            registerFile[code->m_iteratorTestDoneData.m_dstRegisterIndex] = Value(
-                registerFile[code->m_iteratorTestDoneData.m_iteratorRecordOrObjectRegisterIndex].asObject()->get(state, state.context()->staticStrings().done).value(state, registerFile[code->m_iteratorTestDoneData.m_iteratorRecordOrObjectRegisterIndex]).toBoolean(state));
+            Value val = registerFile[code->m_iteratorTestDoneData.m_iteratorRecordOrObjectRegisterIndex].asObject()->get(state, state.context()->staticStrings().done).value(state, registerFile[code->m_iteratorTestDoneData.m_iteratorRecordOrObjectRegisterIndex]);
+            INT_RETURN_IF_PENDING_EXCEPTION
+            registerFile[code->m_iteratorTestDoneData.m_dstRegisterIndex] = Value(val.toBoolean(state));
         }
         ADD_PROGRAM_COUNTER(IteratorOperation);
     } else if (code->m_operation == IteratorOperation::Operation::IteratorNext) {
@@ -4560,12 +4721,10 @@ NEVER_INLINE Object* InterpreterSlowPath::restBindOperation(ExecutionState& stat
 
     while (true) {
         if (!iteratorRecord->m_done) {
-            try {
-                nextResult = IteratorObject::iteratorStep(state, iteratorRecord);
-            } catch (const Value& e) {
-                Value exceptionValue = e;
+            nextResult = IteratorObject::iteratorStep(state, iteratorRecord);
+            if (UNLIKELY(state.hasPendingException())) {
                 iteratorRecord->m_done = true;
-                THROW_EXCEPTION_RETURN_NULL(state, exceptionValue);
+                return nullptr;
             }
 
             if (!nextResult.hasValue()) {
@@ -4577,12 +4736,10 @@ NEVER_INLINE Object* InterpreterSlowPath::restBindOperation(ExecutionState& stat
             break;
         }
 
-        try {
-            value = IteratorObject::iteratorValue(state, nextResult.value());
-        } catch (const Value& e) {
-            Value exceptionValue = e;
+        value = IteratorObject::iteratorValue(state, nextResult.value());
+        if (UNLIKELY(state.hasPendingException())) {
             iteratorRecord->m_done = true;
-            THROW_EXCEPTION_RETURN_NULL(state, exceptionValue);
+            return nullptr;
         }
 
         result->setIndexedProperty(state, Value(index++), value);
@@ -4623,6 +4780,7 @@ NEVER_INLINE void InterpreterSlowPath::getObjectOpcodeSlowCase(ExecutionState& s
         obj = willBeObject.asObject();
     } else {
         obj = fastToObject(state, willBeObject);
+        INT_RETURN_IF_PENDING_EXCEPTION
     }
     registerFile[code->m_storeRegisterIndex] = obj->getIndexedPropertyValue(state, property, willBeObject);
 }
@@ -4632,6 +4790,7 @@ NEVER_INLINE void InterpreterSlowPath::setObjectOpcodeSlowCase(ExecutionState& s
     const Value& willBeObject = registerFile[code->m_objectRegisterIndex];
     const Value& property = registerFile[code->m_propertyRegisterIndex];
     Object* obj = willBeObject.toObject(state);
+    INT_RETURN_IF_PENDING_EXCEPTION
     if (willBeObject.isPrimitive()) {
         obj->preventExtensions(state);
     } else {
@@ -4640,7 +4799,9 @@ NEVER_INLINE void InterpreterSlowPath::setObjectOpcodeSlowCase(ExecutionState& s
     bool result = obj->setIndexedProperty(state, property, registerFile[code->m_loadRegisterIndex]);
 
     if (UNLIKELY(!result) && state.inStrictMode()) {
-        Object::throwCannotWriteError(state, ObjectStructurePropertyName(state, property.toString(state)));
+        String* str = property.toString(state);
+        INT_RETURN_IF_PENDING_EXCEPTION
+        Object::throwCannotWriteError(state, ObjectStructurePropertyName(state, str));
     }
 }
 
@@ -4669,6 +4830,7 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
     }
 
     Value assertions = result.value(state, options);
+    INT_RETURN_ZERO_IF_PENDING_EXCEPTION
 
     if (assertions.isUndefined()) {
         return Platform::ModuleES;
@@ -4690,6 +4852,7 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
             // The key / value pair must be evaluated before their content is checked
             ObjectGetResult result = assertObject->get(state, ObjectPropertyName(state, key));
             Value resultValue = result.hasValue() ? result.value(state, options) : Value();
+            INT_RETURN_ZERO_IF_PENDING_EXCEPTION
 
             // Currently only "type" is supported
             if (!key.isString() || !key.asString()->equals("type")) {

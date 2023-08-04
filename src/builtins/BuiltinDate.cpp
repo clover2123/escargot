@@ -77,6 +77,7 @@ static Value builtinDateConstructor(ExecutionState& state, Value thisValue, size
         Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* constructorRealm) -> Object* {
             return constructorRealm->globalObject()->datePrototype();
         });
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         DateObject* thisObject = new DateObject(state, proto);
 
         if (argc == 0) {
@@ -96,9 +97,11 @@ static Value builtinDateConstructor(ExecutionState& state, Value thisValue, size
                 // If Type(v) is String, then
                 if (v.isString()) {
                     thisObject->setTimeValue(state, v);
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                 } else {
                     // Let tv be ToNumber(v).
                     double V = v.toNumber(state);
+                    RETURN_VALUE_IF_PENDING_EXCEPTION
                     thisObject->setTimeValue(DateObject::timeClip(state, V));
                 }
             }
@@ -110,6 +113,7 @@ static Value builtinDateConstructor(ExecutionState& state, Value thisValue, size
             argc = (argc > 7) ? 7 : argc; // trim arguments so that they don't corrupt stack
             for (size_t i = 0; i < argc; i++) {
                 args[i] = argv[i].toNumber(state);
+                RETURN_VALUE_IF_PENDING_EXCEPTION
             }
             double year = args[0];
             double month = args[1];
@@ -143,6 +147,7 @@ static Value builtinDateParse(ExecutionState& state, Value thisValue, size_t arg
     if (str.isString()) {
         DateObject d(state);
         d.setTimeValue(state, str);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return Value(Value::DoubleToIntConvertibleTestNeeds, d.primitiveValue());
     }
     return Value(Value::NanInit);
@@ -155,6 +160,7 @@ static Value builtinDateUTC(ExecutionState& state, Value thisValue, size_t argc,
     argc = (argc > 7) ? 7 : argc; // trim arguments so that they don't corrupt stack
     for (size_t i = 0; i < argc; i++) {
         args[i] = argv[i].toNumber(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
     }
     double year = args[0];
     double month = args[1];
@@ -289,6 +295,7 @@ static Value builtinDateToJSON(ExecutionState& state, Value thisValue, size_t ar
     }
 
     Value isoFunc = thisObject->get(state, ObjectPropertyName(state.context()->staticStrings().toISOString)).value(state, thisObject);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     return Object::call(state, isoFunc, thisObject, 0, nullptr);
 }
 
@@ -378,6 +385,7 @@ static Value builtinDateSetHelper(ExecutionState& state, DateSetterType setterTy
         RELEASE_ASSERT_NOT_REACHED();
     }
 
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(!isInValidRange(year, month, date, hour, minute, second, millisecond))) {
         d->setTimeValueAsNaN();
     } else if (d->isValid()) {
@@ -399,7 +407,10 @@ static Value builtinDateSetTime(ExecutionState& state, Value thisValue, size_t a
 {
     RESOLVE_THIS_BINDING_TO_DATE(thisObject, Date, setTime);
     if (argc > 0) {
-        thisObject->setTimeValue(DateObject::timeClip(state, argv[0].toNumber(state)));
+        double num = argv[0].toNumber(state);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
+        thisObject->setTimeValue(DateObject::timeClip(state, num));
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         return Value(Value::DoubleToIntConvertibleTestNeeds, thisObject->primitiveValue());
     } else {
         thisObject->setTimeValueAsNaN();
@@ -438,6 +449,7 @@ static Value builtinDateSetYear(ExecutionState& state, Value thisValue, size_t a
 
     // Let y be ToNumber(year).
     y = argv[0].toNumber(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     // If y is NaN, set the [[DateValue]] internal slot of this Date object to NaN and return NaN.
     if (std::isnan(y)) {
         d->setTimeValueAsNaN();

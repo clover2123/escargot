@@ -182,7 +182,13 @@ Value GlobalObject::eval(ExecutionState& state, const Value& arg)
         RETURN_VALUE_IF_PENDING_EXCEPTION
         // In case of indirect call, use global execution context
         ExecutionState stateForNewGlobal(m_context);
-        return script->execute(stateForNewGlobal, true, script->topCodeBlock()->isStrict());
+        Value result = script->execute(stateForNewGlobal, true, script->topCodeBlock()->isStrict());
+        // check exception
+        if (UNLIKELY(result.isException())) {
+            ASSERT(stateForNewGlobal.hasPendingException());
+            state.setPendingException();
+        }
+        return result;
     }
     return arg;
 }
@@ -283,6 +289,7 @@ ATTRIBUTE_NO_OPTIMIZE_IF_ARM64_GCC static Value builtinParseInt(ExecutionState& 
     // 1. Let inputString be ToString(string).
     Value input = argv[0];
     String* s = input.toString(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 2. Let S be a newly created substring of inputString consisting of the first character that is not a StrWhiteSpaceChar
     //    and all characters following that character. (In other words, remove leading white space.)
@@ -363,6 +370,7 @@ static Value builtinParseFloat(ExecutionState& state, Value thisValue, size_t ar
     // 1. Let inputString be ToString(string).
     Value input = argv[0];
     String* s = input.toString(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     size_t strLen = s->length();
 
     if (strLen == 1) {
@@ -424,6 +432,7 @@ static Value builtinParseFloat(ExecutionState& state, Value thisValue, size_t ar
 static Value builtinIsFinite(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     double num = argv[0].toNumber(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (std::isnan(num) || num == std::numeric_limits<double>::infinity() || num == -std::numeric_limits<double>::infinity())
         return Value(Value::False);
     else
@@ -433,6 +442,7 @@ static Value builtinIsFinite(ExecutionState& state, Value thisValue, size_t argc
 static Value builtinIsNaN(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     double num = argv[0].toNumber(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (std::isnan(num)) {
         return Value(Value::True);
     }
@@ -490,6 +500,10 @@ inline static bool codeUnitToHexaDecimal(String* str, size_t start, unsigned cha
 
 static Value decode(ExecutionState& state, String* uriString, bool noComponent, String* funcName)
 {
+    if (!uriString) {
+        ASSERT(state.hasPendingException());
+        return Value(Value::Exception);
+    }
     String* globalObjectString = state.context()->staticStrings().GlobalObject.string();
     StringBuilder unescaped;
     size_t strLen = uriString->length();
@@ -613,6 +627,10 @@ static inline bool convertAndAppendCodeUnit(URIBuilderString* escaped, char16_t 
 
 static Value encode(ExecutionState& state, String* uriString, bool noComponent, String* funcName)
 {
+    if (!uriString) {
+        ASSERT(state.hasPendingException());
+        return Value(Value::Exception);
+    }
     String* globalObjectString = state.context()->staticStrings().GlobalObject.string();
     auto bad = uriString->bufferAccessData();
 
@@ -706,6 +724,7 @@ void char2hex4digit(char16_t dec, URIBuilderString& result)
 static Value builtinEscape(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     String* str = argv[0].toString(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     auto bad = str->bufferAccessData();
     size_t length = bad.length;
     URIBuilderString R;
@@ -767,6 +786,7 @@ char16_t hex2char(char16_t first, char16_t second)
 static Value builtinUnescape(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     String* str = argv[0].toString(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     size_t length = str->length();
     UTF16StringDataNonGCStd R;
     bool unescapeValue = false;

@@ -118,20 +118,32 @@ PromiseReaction::Capability PromiseObject::newPromiseCapability(ExecutionState& 
 
     // Let promise be ? Construct(C, « executor »).
     Object* promise = nullptr;
+    Value promiseValue;
     if (UNLIKELY(context->vmInstance()->isPromiseHookRegistered())) {
         // Note) parent promise is used only for PromiseHook (delivered as an argument here)
         Value arguments[] = { executor, parentPromise };
-        promise = Object::construct(state, constructor, 2, arguments).toObject(state);
+        promiseValue = Object::construct(state, constructor, 2, arguments);
     } else {
         Value arguments[] = { executor };
-        promise = Object::construct(state, constructor, 1, arguments).toObject(state);
+        promiseValue = Object::construct(state, constructor, 1, arguments);
     }
+    if (UNLIKELY(state.hasPendingException())) {
+        return PromiseReaction::Capability();
+    }
+    promise = promiseValue.toObject(state);
     if (UNLIKELY(state.hasPendingException())) {
         return PromiseReaction::Capability();
     }
 
     Value resolveFunction = capability->get(state, strings->resolve).value(state, capability);
+    if (UNLIKELY(state.hasPendingException())) {
+        return PromiseReaction::Capability();
+    }
+
     Value rejectFunction = capability->get(state, strings->reject).value(state, capability);
+    if (UNLIKELY(state.hasPendingException())) {
+        return PromiseReaction::Capability();
+    }
 
     if (!resolveFunction.isCallable() || !rejectFunction.isCallable()) {
         // return exception done!
@@ -248,7 +260,9 @@ Object* PromiseObject::promiseResolve(ExecutionState& state, Object* C, const Va
     if (x.isObject() && x.asObject()->isPromiseObject()) {
         // Let xConstructor be ? Get(x, "constructor").
         // If SameValue(xConstructor, C) is true, return x.
-        if (x.asObject()->get(state, state.context()->staticStrings().constructor).value(state, x.asObject()) == Value(C)) {
+        Value val = x.asObject()->get(state, state.context()->staticStrings().constructor).value(state, x.asObject());
+        RETURN_NULL_IF_PENDING_EXCEPTION
+        if (val == Value(C)) {
             return x.asObject()->asPromiseObject();
         }
     }
@@ -313,7 +327,9 @@ static Value promiseResolveFunctions(ExecutionState& state, Value thisValue, siz
     Object* alreadyResolved = alreadyResolvedValue.asObject();
 
     // If alreadyResolved.[[Value]] is true, return undefined.
-    if (alreadyResolved->getOwnProperty(state, strings->value).value(state, alreadyResolved).isTrue()) {
+    Value val = alreadyResolved->getOwnProperty(state, strings->value).value(state, alreadyResolved);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    if (val.isTrue()) {
         return Value();
     }
     // Set alreadyResolved.[[Value]] to true.
@@ -331,15 +347,12 @@ static Value promiseResolveFunctions(ExecutionState& state, Value thisValue, siz
     }
     Object* resolution = resolutionValue.asObject();
 
-    SandBox sb(state.context());
-    auto res = sb.run([&]() -> Value {
-        return resolution->get(state, strings->then).value(state, resolution);
-    });
-    if (!res.error.isEmpty()) {
-        promise->reject(state, res.error);
+    Value then = resolution->get(state, strings->then).value(state, resolution);
+    if (UNLIKELY(state.hasPendingException())) {
+        Value reason = state.detachPendingException();
+        promise->reject(state, reason);
         return Value();
     }
-    Value then = res.result;
 
     if (then.isCallable()) {
         state.context()->vmInstance()->enqueueJob(new PromiseResolveThenableJob(state.context(), promise, resolution, then.asObject()));
@@ -370,7 +383,9 @@ static Value promiseRejectFunctions(ExecutionState& state, Value thisValue, size
     Object* alreadyResolved = alreadyResolvedValue.asObject();
 
     // If alreadyResolved.[[Value]] is true, return undefined.
-    if (alreadyResolved->getOwnProperty(state, strings->value).value(state, alreadyResolved).isTrue()) {
+    Value val = alreadyResolved->getOwnProperty(state, strings->value).value(state, alreadyResolved);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    if (val.isTrue()) {
         return Value();
     }
 
@@ -432,8 +447,7 @@ static Value ValueThunkThrower(ExecutionState& state, Value thisValue, size_t ar
     // Let F be the active function object.
     Object* F = state.resolveCallee();
     // Throw the resolve's member value
-    state.throwException(F->asExtendedNativeFunctionObject()->internalSlot(PromiseObject::BuiltinFunctionSlot::ValueOrReason));
-    return Value();
+    THROW_EXCEPTION_RETURN_VALUE(state, F->asExtendedNativeFunctionObject()->internalSlot(PromiseObject::BuiltinFunctionSlot::ValueOrReason));
 }
 
 
@@ -467,6 +481,7 @@ Value PromiseObject::promiseThenFinally(ExecutionState& state, Value thisValue, 
 
     // Return ? Invoke(promise, "then", « valueThunk »).
     Value then = promise.asObject()->get(state, strings->then).value(state, promise);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     Value argument[1] = { Value(valueThunk) };
 
     return Object::call(state, then, promise, 1, argument);
@@ -503,6 +518,7 @@ Value PromiseObject::promiseCatchFinally(ExecutionState& state, Value thisValue,
 
     // Return ? Invoke(promise, "then", « thrower »).
     Value then = promise.asObject()->get(state, strings->then).value(state, promise);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     Value argument[1] = { Value(valueThunk) };
 
     return Object::call(state, then, promise, 1, argument);

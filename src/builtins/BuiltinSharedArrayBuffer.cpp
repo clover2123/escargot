@@ -36,6 +36,7 @@ static Value builtinSharedArrayBufferConstructor(ExecutionState& state, Value th
     }
 
     uint64_t byteLength = argv[0].toIndex(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (byteLength == Value::InvalidIndexValue) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().SharedArrayBuffer.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_FirstArgumentInvalidLength);
     }
@@ -45,15 +46,19 @@ static Value builtinSharedArrayBufferConstructor(ExecutionState& state, Value th
     if (UNLIKELY((argc > 1) && argv[1].isObject())) {
         Object* options = argv[1].asObject();
         Value maxLengthValue = options->get(state, ObjectPropertyName(state.context()->staticStrings().maxByteLength)).value(state, options);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (!maxLengthValue.isUndefined()) {
             maxByteLength = maxLengthValue.toIndex(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             if (UNLIKELY((maxByteLength.value() == Value::InvalidIndexValue) || (byteLength > maxByteLength.value()))) {
                 THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().SharedArrayBuffer.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
             }
         }
     }
 
-    return SharedArrayBufferObject::allocateSharedArrayBuffer(state, newTarget.value(), byteLength, maxByteLength);
+    SharedArrayBufferObject* result = SharedArrayBufferObject::allocateSharedArrayBuffer(state, newTarget.value(), byteLength, maxByteLength);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return result;
 }
 
 #define RESOLVE_THIS_BINDING_TO_SHAREDARRAYBUFFER(NAME, OBJ, BUILT_IN_METHOD)                                                                                                                                                                            \

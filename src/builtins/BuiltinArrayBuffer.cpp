@@ -34,6 +34,7 @@ static Value builtinArrayBufferConstructor(ExecutionState& state, Value thisValu
     }
 
     uint64_t byteLength = argv[0].toIndex(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
     if (UNLIKELY(byteLength == Value::InvalidIndexValue)) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().ArrayBuffer.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_FirstArgumentInvalidLength);
     }
@@ -43,15 +44,19 @@ static Value builtinArrayBufferConstructor(ExecutionState& state, Value thisValu
     if (UNLIKELY((argc > 1) && argv[1].isObject())) {
         Object* options = argv[1].asObject();
         Value maxLengthValue = options->get(state, ObjectPropertyName(state.context()->staticStrings().maxByteLength)).value(state, options);
+        RETURN_VALUE_IF_PENDING_EXCEPTION
         if (!maxLengthValue.isUndefined()) {
             maxByteLength = maxLengthValue.toIndex(state);
+            RETURN_VALUE_IF_PENDING_EXCEPTION
             if (UNLIKELY((maxByteLength.value() == Value::InvalidIndexValue) || (byteLength > maxByteLength.value()))) {
                 THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::RangeError, state.context()->staticStrings().ArrayBuffer.string(), false, String::emptyString, ErrorObject::Messages::GlobalObject_FirstArgumentInvalidLength);
             }
         }
     }
 
-    return ArrayBufferObject::allocateArrayBuffer(state, newTarget.value(), byteLength, maxByteLength);
+    ArrayBufferObject* result = ArrayBufferObject::allocateArrayBuffer(state, newTarget.value(), byteLength, maxByteLength);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    return result;
 }
 
 // https://www.ecma-international.org/ecma-262/10.0/#sec-arraybuffer.isview
@@ -173,7 +178,9 @@ static Value builtinArrayBufferSlice(ExecutionState& state, Value thisValue, siz
     Value constructor = obj->speciesConstructor(state, state.context()->globalObject()->arrayBuffer());
     RETURN_VALUE_IF_PENDING_EXCEPTION
     Value arguments[] = { Value(newLen) };
-    Object* newValue = Object::construct(state, constructor, 1, arguments).toObject(state);
+    Value res = Object::construct(state, constructor, 1, arguments);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
+    Object* newValue = res.toObject(state);
     RETURN_VALUE_IF_PENDING_EXCEPTION
     if (!newValue->isArrayBuffer()) {
         THROW_BUILTIN_ERROR_RETURN_VALUE(state, ErrorCode::TypeError, state.context()->staticStrings().ArrayBuffer.string(), true, state.context()->staticStrings().slice.string(), "%s: return value of constructor ArrayBuffer is not valid ArrayBuffer");

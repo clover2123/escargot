@@ -131,10 +131,10 @@ bool ProxyObject::defineOwnProperty(ExecutionState& state, const ObjectPropertyN
     // 9. Let descObj be FromPropertyDescriptor(Desc).
     // 10. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target, P, descObj»)).
     // 11. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target, P.toPropertyKeyValue(), Value(ObjectPropertyDescriptor::fromObjectPropertyDescriptor(state, desc)) };
-    booleanTrapResult = Object::call(state, trap, handler, 3, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 3, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 12. If booleanTrapResult is false, return false.
     if (!booleanTrapResult) {
@@ -210,10 +210,10 @@ bool ProxyObject::deleteOwnProperty(ExecutionState& state, const ObjectPropertyN
 
     // 9. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target, P»)).
     // 10. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target, P.toPropertyKeyValue() };
-    booleanTrapResult = Object::call(state, trap, handler, 2, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 2, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 11. If booleanTrapResult is false, return false.
     if (!booleanTrapResult) {
@@ -383,10 +383,10 @@ bool ProxyObject::preventExtensions(ExecutionState& state)
 
     // 8. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target»)).
     // 9. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target };
-    booleanTrapResult = Object::call(state, trap, handler, 1, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 1, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 10. If booleanTrapResult is true, then
     if (booleanTrapResult) {
@@ -449,12 +449,12 @@ ObjectHasPropertyResult ProxyObject::hasProperty(ExecutionState& state, const Ob
 
     // 9. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target, P»)).
     // 10. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target, propertyName.toPropertyKeyValue() };
-    booleanTrapResult = Object::call(state, trap, handler, 2, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 2, arguments);
     if (UNLIKELY(state.hasPendingException())) {
         return ObjectGetResult();
     }
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 11. If booleanTrapResult is false, then
     if (!booleanTrapResult) {
@@ -680,10 +680,10 @@ bool ProxyObject::isExtensible(ExecutionState& state)
 
     // 8. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target»)).
     // 9. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target };
-    booleanTrapResult = Object::call(state, trap, handler, 1, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 1, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 10. Let targetResult be target.[[IsExtensible]]().
     bool targetResult = target.asObject()->isExtensible(state);
@@ -740,10 +740,10 @@ bool ProxyObject::setPrototype(ExecutionState& state, const Value& value)
 
     // 9. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target, V»)).
     // 10. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target, value };
-    booleanTrapResult = Object::call(state, trap, handler, 2, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 2, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // For ES2018 compatibility 9.5.2.9
     if (!booleanTrapResult) {
@@ -760,6 +760,7 @@ bool ProxyObject::setPrototype(ExecutionState& state, const Value& value)
 
     // 14. Let targetProto be target.[[GetPrototypeOf]]().
     Value targetProto = target.asObject()->getPrototype(state);
+    RETURN_ZERO_IF_PENDING_EXCEPTION
 
     // 16. If booleanTrapResult is true and SameValue(V, targetProto) is false, throw a TypeError exception.
     if (booleanTrapResult && value != targetProto) {
@@ -777,6 +778,7 @@ Object* ProxyObject::getPrototypeObject(ExecutionState& state)
     }
 
     Value result = getPrototype(state);
+    RETURN_NULL_IF_PENDING_EXCEPTION
     if (result.isObject()) {
         return result.asObject();
     }
@@ -836,6 +838,7 @@ Value ProxyObject::getPrototype(ExecutionState& state)
 
     // 14. Let targetProto be target.[[GetPrototypeOf]]().
     Value targetProto = target.asObject()->getPrototype(state);
+    RETURN_VALUE_IF_PENDING_EXCEPTION
 
     // 16. If SameValue(handlerProto, targetProto) is false, throw a TypeError exception.
     if (handlerProto != targetProto) {
@@ -951,10 +954,10 @@ bool ProxyObject::set(ExecutionState& state, const ObjectPropertyName& propertyN
 
     // 9. Let booleanTrapResult be ToBoolean(Call(trap, handler, «target, P, V, Receiver»)).
     // 10. ReturnIfAbrupt(booleanTrapResult).
-    bool booleanTrapResult;
     Value arguments[] = { target, propertyName.toPropertyKeyValue(), v, receiver };
-    booleanTrapResult = Object::call(state, trap, handler, 4, arguments).toBoolean(state);
+    Value trapResult = Object::call(state, trap, handler, 4, arguments);
     RETURN_ZERO_IF_PENDING_EXCEPTION
+    bool booleanTrapResult = trapResult.toBoolean(state);
 
     // 11. If booleanTrapResult is false, return false.
     if (!booleanTrapResult) {
@@ -1057,7 +1060,7 @@ Value ProxyObject::construct(ExecutionState& state, const size_t argc, Value* ar
     // b. Return Construct(target, argumentsList, newTarget).
     if (trap.isUndefined()) {
         ASSERT(target.isConstructor());
-        return Object::construct(state, target, argc, argv, newTarget).toObject(state);
+        return Object::construct(state, target, argc, argv, newTarget);
     }
 
     // 8. Let argArray be CreateArrayFromList(argumentsList).

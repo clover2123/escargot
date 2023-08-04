@@ -74,8 +74,7 @@ ArrayObject::ArrayObject(ExecutionState& state, Object* proto, const uint64_t& s
     : ArrayObject(state, proto)
 {
     if (UNLIKELY(size > ((1LL << 32LL) - 1LL))) {
-        RELEASE_ASSERT_NOT_REACHED();
-        //ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
+        THROW_BUILTIN_ERROR_RETURN(state, ErrorCode::RangeError, ErrorObject::Messages::GlobalObject_InvalidArrayLength);
     }
 
     setArrayLength(state, size, true, shouldConsiderHole);
@@ -687,13 +686,16 @@ std::pair<Value, bool> ArrayIteratorObject::advance(ExecutionState& state)
         if (a->asArrayBufferView()->buffer()->isDetachedBuffer()) {
             // FIXME THROW
             ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, state.context()->staticStrings().ArrayIterator.string(), true, state.context()->staticStrings().next.string(), ErrorObject::Messages::GlobalObject_DetachedBuffer);
-            return std::make_pair(Value(), false);
+            return std::make_pair(Value(Value::Exception), false);
         }
         // Let len be a.[[ArrayLength]].
         len = a->asArrayBufferView()->arrayLength();
     } else {
         // Let len be ? ToLength(? Get(a, "length")).
         len = a->length(state);
+        if (UNLIKELY(state.hasPendingException())) {
+            return std::make_pair(Value(Value::Exception), false);
+        }
     }
 
     // If index ≥ len, then
