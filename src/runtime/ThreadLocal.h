@@ -34,6 +34,19 @@ struct WASMContext {
 };
 #endif
 
+#if defined(ENABLE_PROFILE)
+struct Profiler {
+    size_t numberOfRS; // number of total return statements
+    size_t numberOfTCP; // number of total tail call position
+    size_t numberOfTCOHit; // number of total tail call opt count
+    size_t numberOfTCOInTryHit; // number of total tail call opt count within try
+    size_t numberOfTCOFail; // number of total tail call opt fail
+    size_t numberOfTCOInTryFail; // number of total tail call opt fail within try
+    size_t numberOfCallCount; // number of total call counts
+};
+
+#endif
+
 namespace Escargot {
 
 class ASTAllocator;
@@ -102,6 +115,10 @@ class ThreadLocal {
     static MAY_THREAD_LOCAL void* g_customData;
 
 public:
+#if defined(ENABLE_PROFILE)
+    static MAY_THREAD_LOCAL Profiler g_profiler;
+#endif
+
     static void initialize();
     static void finalize();
     static bool isInited()
