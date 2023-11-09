@@ -1562,7 +1562,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ThreadLocal::g_profiler.numberOfCallCount++;
 #endif
 
-            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->m_argc != code->m_argumentCount))) {
+            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->initTCO() && (state->m_argc != code->m_argumentCount)))) {
                 // goto slow path
 #if defined(ENABLE_PROFILE)
                 ThreadLocal::g_profiler.numberOfTCOFail++;
@@ -1573,7 +1573,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // fast tail recursion
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
             ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
-            ASSERT(state->m_argc == code->m_argumentCount);
+            ASSERT(!state->initTCO() || (state->m_argc == code->m_argumentCount));
 
 #if defined(ENABLE_PROFILE)
             ThreadLocal::g_profiler.numberOfTCOHit++;
@@ -1583,6 +1583,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 // At the start of tail call, we need to allocate a buffer for arguments
                 // because recursive tail call reuses this buffer
                 if (UNLIKELY(!state->initTCO())) {
+                    state->m_argc = code->m_argumentCount;
                     Value* newArgs = ALLOCA(sizeof(Value) * code->m_argumentCount, Value);
                     state->setTCOArguments(newArgs);
                 }
@@ -1592,6 +1593,8 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
                 }
             }
+
+            state->setInitTCO();
 
             // set this value
             registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->inStrictMode() ? Value() : state->context()->globalObjectProxy();
@@ -1614,7 +1617,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
 #if defined(ENABLE_PROFILE)
             ThreadLocal::g_profiler.numberOfCallCount++;
 #endif
-            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->m_argc != code->m_argumentCount))) {
+            if (UNLIKELY((callee != Value(state->resolveCallee())) || (state->initTCO() && (state->m_argc != code->m_argumentCount)))) {
                 // goto slow path
 #if defined(ENABLE_PROFILE)
                 ThreadLocal::g_profiler.numberOfTCOFail++;
@@ -1625,7 +1628,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             // fast tail recursion with receiver
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
             ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
-            ASSERT(state->m_argc == code->m_argumentCount);
+            ASSERT(!state->initTCO() || (state->m_argc == code->m_argumentCount));
 
 #if defined(ENABLE_PROFILE)
             ThreadLocal::g_profiler.numberOfTCOHit++;
@@ -1635,6 +1638,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 // At the start of tail call, we need to allocate a buffer for arguments
                 // because recursive tail call reuses this buffer
                 if (UNLIKELY(!state->initTCO())) {
+                    state->m_argc = code->m_argumentCount;
                     Value* newArgs = ALLOCA(sizeof(Value) * code->m_argumentCount, Value);
                     state->setTCOArguments(newArgs);
                 }
@@ -1644,6 +1648,8 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
                 }
             }
+
+            state->setInitTCO();
 
             // set this value (receiver) // FIXME
             if (state->inStrictMode()) {
