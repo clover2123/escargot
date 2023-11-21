@@ -157,6 +157,8 @@ void ThreadLocal::initialize()
     g_profiler.numberOfTCOFail = 0;
     g_profiler.numberOfTCOInTryFail = 0;
     g_profiler.numberOfCallCount = 0;
+    g_profiler.numberOfCallReturnCount = 0;
+    g_profiler.numberOfCallReturnWithReceiverCount = 0;
 #endif
 
     // g_gcEventListenerSet
@@ -189,6 +191,8 @@ void ThreadLocal::finalize()
     printf("NumberOfTCOFail: %lu\n", g_profiler.numberOfTCOFail);
     printf("NumberOfTCOInTryFail: %lu\n", g_profiler.numberOfTCOInTryFail);
     printf("NumberOfCallCount: %lu\n", g_profiler.numberOfCallCount);
+    printf("numberOfCallReturnCount: %lu\n", g_profiler.numberOfCallReturnCount);
+    printf("numberOfCallReturnWithReceiverCount: %lu\n", g_profiler.numberOfCallReturnWithReceiverCount);
 #endif
 
     // g_customData

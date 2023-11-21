@@ -43,6 +43,8 @@ struct Profiler {
     size_t numberOfTCOFail; // number of total tail call opt fail
     size_t numberOfTCOInTryFail; // number of total tail call opt fail within try
     size_t numberOfCallCount; // number of total call counts
+    size_t numberOfCallReturnCount; // number of total callreturn counts
+    size_t numberOfCallReturnWithReceiverCount; // number of total callreturnwithreceiver counts
 };
 
 #endif

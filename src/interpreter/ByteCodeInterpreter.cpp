@@ -1087,6 +1087,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
 #if defined(ENABLE_PROFILE)
             ThreadLocal::g_profiler.numberOfCallCount++;
+            ThreadLocal::g_profiler.numberOfCallReturnCount++;
 #endif
             CallReturn* code = (CallReturn*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
@@ -1107,6 +1108,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
 #if defined(ENABLE_PROFILE)
             ThreadLocal::g_profiler.numberOfCallCount++;
+            ThreadLocal::g_profiler.numberOfCallReturnWithReceiverCount++;
 #endif
             CallReturnWithReceiver* code = (CallReturnWithReceiver*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
