@@ -48,6 +48,9 @@ MAY_THREAD_LOCAL bf_context_t ThreadLocal::g_bfContext;
 #if defined(ENABLE_WASM)
 MAY_THREAD_LOCAL WASMContext ThreadLocal::g_wasmContext;
 #endif
+#if defined(ENABLE_PROFILE)
+MAY_THREAD_LOCAL Profiler ThreadLocal::g_profiler;
+#endif
 MAY_THREAD_LOCAL GCEventListenerSet* ThreadLocal::g_gcEventListenerSet;
 MAY_THREAD_LOCAL ASTAllocator* ThreadLocal::g_astAllocator;
 MAY_THREAD_LOCAL WTF::BumpPointerAllocator* ThreadLocal::g_bumpPointerAllocator;
@@ -197,6 +200,17 @@ void ThreadLocal::initialize()
     g_wasmContext.store = wasm_store_new(g_wasmContext.engine);
     g_wasmContext.lastGCCheckTime = 0;
 #endif
+#if defined(ENABLE_PROFILE)
+    g_profiler.numberOfRS = 0;
+    g_profiler.numberOfTCP = 0;
+    g_profiler.numberOfTCOHit = 0;
+    g_profiler.numberOfTCOInTryHit = 0;
+    g_profiler.numberOfTCOFail = 0;
+    g_profiler.numberOfTCOInTryFail = 0;
+    g_profiler.numberOfCallCount = 0;
+    g_profiler.numberOfCallReturnCount = 0;
+    g_profiler.numberOfCallReturnWithReceiverCount = 0;
+#endif
 
     // g_gcEventListenerSet
     g_gcEventListenerSet = new GCEventListenerSet();
@@ -254,6 +268,19 @@ void ThreadLocal::finalize()
     // g_bumpPointerAllocator
     delete g_bumpPointerAllocator;
     g_bumpPointerAllocator = nullptr;
+
+#if defined(ENABLE_PROFILE)
+    // print profiled data
+    printf("NumberOfReturnStatement: %lu\n", g_profiler.numberOfRS);
+    printf("NumberOfTailCallPosition: %lu\n", g_profiler.numberOfTCP);
+    printf("NumberOfTCOHit: %lu\n", g_profiler.numberOfTCOHit);
+    printf("NumberOfTCOInTryHit: %lu\n", g_profiler.numberOfTCOInTryHit);
+    printf("NumberOfTCOFail: %lu\n", g_profiler.numberOfTCOFail);
+    printf("NumberOfTCOInTryFail: %lu\n", g_profiler.numberOfTCOInTryFail);
+    printf("NumberOfCallCount: %lu\n", g_profiler.numberOfCallCount);
+    printf("numberOfCallReturnCount: %lu\n", g_profiler.numberOfCallReturnCount);
+    printf("numberOfCallReturnWithReceiverCount: %lu\n", g_profiler.numberOfCallReturnWithReceiverCount);
+#endif
 
     inited = false;
 }

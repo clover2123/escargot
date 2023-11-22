@@ -51,6 +51,10 @@
 #include "parser/ScriptParser.h"
 #include "CheckedArithmetic.h"
 
+#if defined(ENABLE_PROFILE)
+#include "runtime/ThreadLocal.h"
+#endif
+
 #if defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER) && !defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER_INIT_WITH_NULL)
 extern char FillOpcodeTableAsmLbl[];
 const void* FillOpcodeTableAddress[] = { &FillOpcodeTableAsmLbl[0] };
@@ -736,6 +740,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             Call* code = (Call*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
+
             // if PointerValue is not callable, PointerValue::call function throws builtin error
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
@@ -756,6 +764,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             CallWithReceiver* code = (CallWithReceiver*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
             const Value& receiver = registerFile[code->m_receiverIndex];
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
 
             // if PointerValue is not callable, PointerValue::call function throws builtin error
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
@@ -1076,6 +1088,12 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         DEFINE_OPCODE(CallReturn)
             :
         {
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+            ThreadLocal::g_profiler.numberOfCallReturnCount++;
+#endif
+
+
             CallReturn* code = (CallReturn*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
 
@@ -1093,6 +1111,11 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         DEFINE_OPCODE(CallReturnWithReceiver)
             :
         {
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+            ThreadLocal::g_profiler.numberOfCallReturnWithReceiverCount++;
+#endif
+
             CallReturnWithReceiver* code = (CallReturnWithReceiver*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
             const Value& receiver = registerFile[code->m_receiverIndex];
@@ -1411,6 +1434,9 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         DEFINE_OPCODE(CallComplexCase)
             :
         {
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
             CallComplexCase* code = (CallComplexCase*)programCounter;
             InterpreterSlowPath::callFunctionComplexCase(*state, code, registerFile, byteCodeBlock);
             ADD_PROGRAM_COUNTER(CallComplexCase);
@@ -1540,8 +1566,15 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             TailRecursion* code = (TailRecursion*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
+
             if (UNLIKELY(callee != Value(state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->functionObject()))) {
                 // goto slow path
+#if defined(ENABLE_PROFILE)
+                ThreadLocal::g_profiler.numberOfTCOFail++;
+#endif
                 return InterpreterSlowPath::tailRecursionSlowCase(*state, code, callee, registerFile);
             }
 
@@ -1552,6 +1585,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 Value* newArgs = code->m_argumentCount ? ALLOCA(sizeof(Value) * code->m_argumentCount, Value) : nullptr;
                 state->setTCOArguments(newArgs);
             }
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfTCOHit++;
+#endif
 
             // fast tail recursion
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
@@ -1586,8 +1623,17 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& callee = registerFile[code->m_calleeIndex];
             const Value& receiver = registerFile[code->m_receiverIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
+
+
             if (UNLIKELY(callee != Value(state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->functionObject()))) {
                 // goto slow path
+#if defined(ENABLE_PROFILE)
+                ThreadLocal::g_profiler.numberOfTCOFail++;
+#endif
+
                 return InterpreterSlowPath::tailRecursionWithReceiverSlowCase(*state, code, callee, receiver, registerFile);
             }
 
@@ -1603,6 +1649,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
             ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
             ASSERT(state->initTCO() && (state->m_argc == code->m_argumentCount));
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfTCOHit++;
+#endif
 
             // its safe to overwrite arguments because old arguments are no longer necessary
             for (size_t i = 0; i < state->m_argc; i++) {
@@ -1634,9 +1684,19 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             TailRecursionInTry* code = (TailRecursionInTry*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfCallCount++;
+#endif
+
+
             if (UNLIKELY(callee != Value(state->resolveCallee()))) {
                 // should call resolveCallee because try-catch-finally block is executed in a sub-interpreter
                 // goto slow path
+#if defined(ENABLE_PROFILE)
+                ThreadLocal::g_profiler.numberOfTCOInTryFail++;
+#endif
+
+
                 code->changeOpcode(Opcode::CallOpcode);
                 if (UNLIKELY(!callee.isPointerValue())) {
                     ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
@@ -1652,6 +1712,11 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
             ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
             ASSERT(state->rareData()->controlFlowRecordVector() && state->rareData()->controlFlowRecordVector()->size());
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numberOfTCOInTryHit++;
+#endif
+
 
             // postpone recursion call
             // because we need to close the current interpreter routine which is called inside try operation

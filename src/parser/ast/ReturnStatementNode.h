@@ -22,6 +22,10 @@
 
 #include "StatementNode.h"
 
+#if defined(ENABLE_PROFILE)
+#include "runtime/ThreadLocal.h"
+#endif
+
 namespace Escargot {
 
 class ReturnStatementNode : public StatementNode {
@@ -47,6 +51,10 @@ public:
         }
 #endif /* ESCARGOT_DEBUGGER */
 
+#if defined(ENABLE_PROFILE)
+        ThreadLocal::g_profiler.numberOfRS++;
+#endif
+
         if (context->tryCatchWithBlockStatementCount() != 0) {
             ByteCodeRegisterIndex index;
             if (m_argument) {
@@ -58,6 +66,11 @@ public:
                     context->setReturnRegister(index);
                     m_argument->generateTCOExpressionByteCode(codeBlock, context, index, isTailCall);
                     context->setReturnRegister(SIZE_MAX);
+#if defined(ENABLE_PROFILE)
+                    if (isTailCall) {
+                        ThreadLocal::g_profiler.numberOfTCP++;
+                    }
+#endif
                 } else {
                     m_argument->generateExpressionByteCode(codeBlock, context, index);
                 }
@@ -94,6 +107,12 @@ public:
             }
 
 #if defined(ENABLE_TCO)
+#if defined(ENABLE_PROFILE)
+            if (isTailCall) {
+                ThreadLocal::g_profiler.numberOfTCP++;
+            }
+#endif
+
             if (!isTailCall || (m_argument->type() != CallExpression))
             // skip End bytecode only if it directly returns the result of tail call
 #endif
