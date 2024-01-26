@@ -742,6 +742,19 @@ public:
     }
 
     // for TCO
+    bool isTailCallTarget(size_t argc) const
+    {
+        // global scope cannot create a return statement, neither tail call
+        ASSERT(!isGlobalScope());
+
+        if (argc > TCO_ARGUMENT_COUNT_LIMIT) {
+            return false;
+        }
+
+        // skip arrow functions because arrow functions are rarely invoked in tail call
+        return m_canAllocateVariablesOnStack && !m_isArrowFunctionExpression && !m_isClassConstructor && !m_isDerivedClassConstructor && !m_isClassMethod && !m_isClassStaticMethod && !m_isGenerator && !m_isAsync && !m_usesArgumentsObject;
+    }
+
     bool isTailRecursionTarget(size_t argc, const AtomicString& calleeName) const
     {
         // global scope cannot create a return statement, neither tail recursion
@@ -760,7 +773,7 @@ public:
         }
 #endif
 
-        return (!m_canAllocateVariablesOnStack || m_isArrowFunctionExpression || m_isClassConstructor || m_isDerivedClassConstructor || m_isClassMethod || m_isClassStaticMethod || m_isGenerator || m_isAsync || m_usesArgumentsObject) != true;
+        return isTailCallTarget(argc);
     }
 
     bool usesArgumentsObject() const

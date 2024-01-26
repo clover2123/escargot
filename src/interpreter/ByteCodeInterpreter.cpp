@@ -51,6 +51,20 @@
 #include "parser/ScriptParser.h"
 #include "CheckedArithmetic.h"
 
+#if defined(ENABLE_TCO)
+#include "runtime/FunctionObjectInlines.h"
+
+namespace Escargot {
+MAY_THREAD_LOCAL Value* Interpreter::tcoBuffer;
+
+void Interpreter::initTCOBuffer()
+{
+    ASSERT(!Interpreter::tcoBuffer);
+    Interpreter::tcoBuffer = (Value*)GC_MALLOC_UNCOLLECTABLE(sizeof(Value) * TCO_ARGUMENT_COUNT_LIMIT);
+}
+} // namespace Escargot
+#endif
+
 #if defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER) && !defined(ESCARGOT_COMPUTED_GOTO_INTERPRETER_INIT_WITH_NULL)
 extern char FillOpcodeTableAsmLbl[];
 const void* FillOpcodeTableAddress[] = { &FillOpcodeTableAsmLbl[0] };
@@ -191,7 +205,9 @@ public:
     static int evaluateImportAssertionOperation(ExecutionState& state, const Value& options);
 
 #if defined(ENABLE_TCO)
-    static Value tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& callee, const Value& receiver, Value* registerFile);
+    static Value prepareTailCallSlowCase(ExecutionState* state, TailCall* code, ScriptFunctionObject* callee, ByteCodeBlock*& callerBlock, size_t& programCounter, const Value* registerFile);
+    static Value tailCallSlowCase(ExecutionState& state, TailCall* code, const Value& callee, Value* registerFile);
+    static Value tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& calleeValue, Value* registerFile, ByteCodeBlock* callerBlock);
 #endif
 
 private:
@@ -1525,38 +1541,88 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         }
 
 #if defined(ENABLE_TCO)
+        // TCO : tail call case (general)
+        DEFINE_OPCODE(TailCall)
+            :
+        {
+            TailCall* code = (TailCall*)programCounter;
+            ASSERT(byteCodeBlock->m_codeBlock->isTailCallTarget(code->m_argumentCount));
+            ASSERT(Interpreter::tcoBuffer);
+
+            const Value& calleeValue = registerFile[code->m_calleeIndex];
+
+            if (calleeValue.isPointerValue() && calleeValue.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
+                Value thisValue = InterpreterSlowPath::prepareTailCallSlowCase(state, code, calleeValue.asPointerValue()->asScriptFunctionObject(), byteCodeBlock, programCounter, registerFile);
+                if (!thisValue.isEmpty()) {
+                    ASSERT(byteCodeBlock == calleeValue.asPointerValue()->asScriptFunctionObject()->interpretedCodeBlock()->byteCodeBlock());
+                    ASSERT(programCounter == (size_t)byteCodeBlock->m_code.data());
+                    ASSERT(state->m_programCounter == &programCounter);
+
+                    if (!state->lexicalEnvironment()) {
+                        // should allocate environment stuctures on the stack
+                        ScriptFunctionObject* callee = calleeValue.asPointerValue()->asScriptFunctionObject();
+                        FunctionEnvironmentRecord* record = new (alloca(sizeof(FunctionEnvironmentRecordOnStack<false, false>))) FunctionEnvironmentRecordOnStack<false, false>(callee);
+                        LexicalEnvironment* lexEnv = new (alloca(sizeof(LexicalEnvironment))) LexicalEnvironment(record, callee->outerEnvironment()
+#ifndef NDEBUG
+                                                                                                                             ,
+                                                                                                                 false
+#endif
+                        );
+                        state->m_lexicalEnvironment = lexEnv;
+                    }
+
+                    Value* newArgs = code->m_argumentCount ? (Value*)alloca(sizeof(Value) * code->m_argumentCount) : nullptr;
+                    state->initTCO(code->m_argumentCount, newArgs);
+                    // rewrite arguments info on ExecutionState
+                    for (size_t i = 0; i < code->m_argumentCount; i++) {
+                        state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
+                    }
+
+                    // set this value
+                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = thisValue;
+
+                    // general tail call
+                    // directly jump to the first bytecode of callee
+                    NEXT_INSTRUCTION();
+                }
+            }
+
+            // goto slow path
+            return InterpreterSlowPath::tailCallSlowCase(*state, code, calleeValue, registerFile);
+        }
+
         // TCO : tail recursion case
         DEFINE_OPCODE(TailRecursion)
             :
         {
             TailRecursion* code = (TailRecursion*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
-            const Value& receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
 
             if (UNLIKELY(callee != Value(state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->functionObject()))) {
                 // goto slow path
-                return InterpreterSlowPath::tailRecursionSlowCase(*state, code, callee, receiver, registerFile);
+                return InterpreterSlowPath::tailRecursionSlowCase(*state, code, callee, registerFile, byteCodeBlock);
             }
 
-            if (UNLIKELY(!state->initTCO())) {
-                // At the start of tail call, we need to allocate a buffer for arguments
+            const Value receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
+            Context* context = state->context();
+            if (UNLIKELY(!state->inTCO())) {
+                // At the start of tail call, we need to set a buffer for arguments
                 // because recursive tail call reuses this buffer
-                state->m_argc = code->m_argumentCount;
-                Value* newArgs = code->m_argumentCount ? ALLOCA(sizeof(Value) * code->m_argumentCount, Value) : nullptr;
-                state->setTCOArguments(newArgs);
+                Value* newArgs = code->m_argumentCount ? (Value*)alloca(sizeof(Value) * code->m_argumentCount) : nullptr;
+                state->initTCO(code->m_argumentCount, newArgs);
             }
 
             // fast tail recursion
             ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
             ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
-            ASSERT(state->initTCO() && (state->m_argc == code->m_argumentCount));
+            ASSERT(state->inTCO() && (state->m_argc == code->m_argumentCount));
 #ifndef NDEBUG
             // check this value for call without receiver
             if (code->m_receiverIndex == REGISTER_LIMIT) {
                 if (state->inStrictMode()) {
                     ASSERT(registerFile[byteCodeBlock->m_requiredOperandRegisterNumber].isUndefined());
                 } else {
-                    ASSERT(registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] == Value(state->context()->globalObjectProxy()));
+                    ASSERT(registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] == Value(context->globalObjectProxy()));
                 }
             }
 #endif
@@ -1572,7 +1638,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver;
                 } else {
                     if (receiver.isUndefinedOrNull()) {
-                        registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->context()->globalObjectProxy();
+                        registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = context->globalObjectProxy();
                     } else {
                         registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver.toObject(*state);
                     }
@@ -3378,10 +3444,9 @@ NEVER_INLINE Value InterpreterSlowPath::tryOperation(ExecutionState*& state, siz
             size_t argStartIndex = record->m_outerLimitCount;
             // At the start of tail call, we need to allocate a buffer for arguments
             // because recursive tail call reuses this buffer
-            if (UNLIKELY(!state->initTCO())) {
-                state->m_argc = argCount;
+            if (UNLIKELY(!state->inTCO())) {
                 Value* newArgs = argCount ? (Value*)GC_MALLOC(sizeof(Value) * argCount) : nullptr;
-                state->setTCOArguments(newArgs);
+                state->initTCO(argCount, newArgs);
             }
 
             // its safe to overwrite arguments because old arguments are no longer necessary
@@ -4918,10 +4983,88 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
 }
 
 #if defined(ENABLE_TCO)
-NEVER_INLINE Value InterpreterSlowPath::tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& callee, const Value& receiver, Value* registerFile)
+NEVER_INLINE Value InterpreterSlowPath::prepareTailCallSlowCase(ExecutionState* state, TailCall* code, ScriptFunctionObject* callee, ByteCodeBlock*& callerBlock, size_t& programCounter, const Value* registerFile)
 {
-    // fail to tail recursion
+    ASSERT(!callee->isScriptArrowFunctionObject() && !!callerBlock);
+
+    InterpretedCodeBlock* calleeCB = callee->interpretedCodeBlock();
+    if (UNLIKELY(!calleeCB->byteCodeBlock())) {
+        // if callee doesn't have ByteCode yet, generate it
+        callee->generateByteCodeBlock(*state);
+    }
+
+    ByteCodeBlock* calleeBlock = calleeCB->byteCodeBlock();
+    ASSERT(!!calleeBlock);
+    if (!calleeBlock->needsExtendedExecutionState() && (callerBlock->m_requiredTotalRegisterNumber >= calleeBlock->m_requiredTotalRegisterNumber)) {
+        // make general tail call
+        // Note) any element of registerFile should not be modified in this function
+        ASSERT(state->m_programCounter == &programCounter);
+
+        const Value receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
+        Context* context = calleeCB->context();
+        bool isStrict = calleeCB->isStrict();
+
+        FunctionEnvironmentRecord* record = nullptr;
+        LexicalEnvironment* lexEnv = nullptr;
+        if (!calleeCB->canAllocateEnvironmentOnStack()) {
+            // cannot reuse environment structures
+            // should create new environments
+            ASSERT(!callee->isScriptSimpleFunctionObject());
+            record = FunctionObjectProcessCallGenerator::createFunctionEnvironmentRecord<ScriptFunctionObject, false, false>(*state, callee, calleeCB);
+            lexEnv = new LexicalEnvironment(record, callee->outerEnvironment());
+        } else if (callerBlock->codeBlock()->canAllocateEnvironmentOnStack()) {
+            // reuse caller's environment structures
+            ASSERT(state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->isFunctionEnvironmentRecordOnStack());
+            record = new (state->lexicalEnvironment()->record()) FunctionEnvironmentRecordOnStack<false, false>(callee);
+            lexEnv = new (state->lexicalEnvironment()) LexicalEnvironment(record, callee->outerEnvironment()
+#ifndef NDEBUG
+                                                                                      ,
+                                                                          false
+#endif
+            );
+        }
+        // other case, environment structures need to be newly allocated on the stack using alloca method
+        // this will be handled right after this slow path
+
+        ASSERT(code->m_argumentCount <= TCO_ARGUMENT_COUNT_LIMIT);
+        ExecutionState* newState = new (state) ExecutionState(context, state->parent(), lexEnv, 0, nullptr, isStrict);
+
+        /*
+        newState->m_argc = code->m_argumentCount;
+        newState->setTCOArguments(Interpreter::tcoArgumentsBuffer);
+        // rewrite arguments info on ExecutionState
+        for (size_t i = 0; i < code->m_argumentCount; i++) {
+            newState->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
+        }
+        */
+
+        // set this value
+        Value thisValue;
+        if (code->m_receiverIndex == REGISTER_LIMIT) {
+            thisValue = isStrict ? Value() : context->globalObjectProxy();
+        } else {
+            thisValue = isStrict ? receiver : (receiver.isUndefinedOrNull() ? context->globalObjectProxy() : receiver.toObject(*newState));
+        }
+        //registerFile[calleeBlock->m_requiredOperandRegisterNumber] = thisValue;
+
+        // rewrite call environment
+        ASSERT(state == newState);
+        callerBlock = calleeBlock;
+        programCounter = reinterpret_cast<size_t>(calleeBlock->m_code.data());
+        newState->m_programCounter = &programCounter;
+
+        return thisValue;
+    }
+
+    // empty value represents invalid tail call
+    return Value(Value::EmptyValue);
+}
+
+NEVER_INLINE Value InterpreterSlowPath::tailCallSlowCase(ExecutionState& state, TailCall* code, const Value& callee, Value* registerFile)
+{
+    // fail to tail Call
     // convert to CallReturn
+    const Value receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
     code->changeOpcode(Opcode::CallReturnOpcode);
 
     // if PointerValue is not callable, PointerValue::call function throws builtin error
@@ -4932,6 +5075,38 @@ NEVER_INLINE Value InterpreterSlowPath::tailRecursionSlowCase(ExecutionState& st
     }
 
     return callee.asPointerValue()->call(state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+}
+
+NEVER_INLINE Value InterpreterSlowPath::tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, const Value& calleeValue, Value* registerFile, ByteCodeBlock* callerBlock)
+{
+    // fail to tail recursion
+    // convert to CallReturn in default
+    ASSERT(!!callerBlock);
+    const Value receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
+    code->changeOpcode(Opcode::CallReturnOpcode);
+
+    // if PointerValue is not callable, PointerValue::call function throws builtin error
+    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+    // If IsCallable(F) is false, throw a TypeError exception.
+    if (UNLIKELY(!calleeValue.isPointerValue())) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+    } else if (calleeValue.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
+        ScriptFunctionObject* callee = calleeValue.asPointerValue()->asScriptFunctionObject();
+        InterpretedCodeBlock* calleeCB = callee->interpretedCodeBlock();
+        if (UNLIKELY(!calleeCB->byteCodeBlock())) {
+            callee->generateByteCodeBlock(state);
+        }
+
+        ByteCodeBlock* calleeBlock = calleeCB->byteCodeBlock();
+        ASSERT(!!calleeBlock);
+        if (!calleeBlock->needsExtendedExecutionState() && (callerBlock->m_requiredTotalRegisterNumber >= calleeBlock->m_requiredTotalRegisterNumber)) {
+            // TailCall is still possible, convert to TailCall
+            code->changeOpcode(Opcode::TailCallOpcode);
+            printf("CONVERT TO TAIL CALL FROM RECURSION\n");
+        }
+    }
+
+    return calleeValue.asPointerValue()->call(state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
 }
 #endif
 } // namespace Escargot
