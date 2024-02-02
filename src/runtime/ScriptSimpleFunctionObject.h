@@ -105,6 +105,7 @@ protected:
             clearStack<512>();
         }
         if (UNLIKELY(newState.inTCO())) {
+            // callee has been called in tail call, so reset the argument buffer
             memset(Interpreter::tcoBuffer, 0, sizeof(Value) * TCO_ARGUMENT_COUNT_LIMIT);
         }
         return returnValue;

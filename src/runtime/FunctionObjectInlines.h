@@ -225,9 +225,11 @@ public:
             clearStack<512>();
         }
 #if defined(ENABLE_TCO)
-        if (!isConstructCall && newState->inTCO()) {
-            // callee has been called in tail call, so reset the argument buffer
-            memset(Interpreter::tcoBuffer, 0, sizeof(Value) * TCO_ARGUMENT_COUNT_LIMIT);
+        if (!isConstructCall) {
+            if (UNLIKELY(newState->inTCO())) {
+                // callee has been called in tail call, so reset the argument buffer
+                memset(Interpreter::tcoBuffer, 0, sizeof(Value) * TCO_ARGUMENT_COUNT_LIMIT);
+            }
         }
 #endif
 

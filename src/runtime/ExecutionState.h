@@ -253,11 +253,10 @@ public:
         return m_inTCO;
     }
 
-    void initTCO(size_t argc, Value* argv)
+    void initTCOWithBuffer(Value* argv)
     {
-        // initialize arguments info for tail call
+        // initialize arguments buffer for tail call
         ASSERT(!m_inTCO);
-        m_argc = argc;
         m_argv = argv;
         m_inTCO = true;
     }
