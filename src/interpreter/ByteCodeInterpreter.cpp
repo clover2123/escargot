@@ -51,6 +51,10 @@
 #include "parser/ScriptParser.h"
 #include "CheckedArithmetic.h"
 
+#if defined(ENABLE_PROFILE)
+#include "runtime/ThreadLocal.h"
+#endif
+
 #if defined(ENABLE_TCO)
 #include "runtime/FunctionObjectInlines.h"
 
@@ -205,6 +209,7 @@ public:
     static int evaluateImportAssertionOperation(ExecutionState& state, const Value& options);
 
 #if defined(ENABLE_TCO)
+    static Value tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, ByteCodeBlock* byteCodeBlock, const Value& callee, Value* registerFile);
     static Value prepareTailCallOptimization(ExecutionState* state, TailCall* code, ScriptFunctionObject* callee, ByteCodeBlock*& callerBlock, size_t& programCounter, const Value* registerFile);
     static Value tailCallSlowCase(ExecutionState& state, TailCall* code, const Value& callee, Value* registerFile);
 #endif
@@ -754,6 +759,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             Call* code = (Call*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfCall++;
+#endif
+
             // if PointerValue is not callable, PointerValue::call function throws builtin error
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
@@ -774,6 +783,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             CallWithReceiver* code = (CallWithReceiver*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
             const Value& receiver = registerFile[code->m_receiverIndex];
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfCall++;
+#endif
 
             // if PointerValue is not callable, PointerValue::call function throws builtin error
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
@@ -1098,6 +1111,10 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             const Value& callee = registerFile[code->m_calleeIndex];
             const Value& receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfCall++;
+#endif
+
             // if PointerValue is not callable, PointerValue::call function throws builtin error
             // https://www.ecma-international.org/ecma-262/6.0/#sec-call
             // If IsCallable(F) is false, throw a TypeError exception.
@@ -1105,6 +1122,11 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 ErrorObject::throwBuiltinError(*state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
             }
 
+#if defined(ENABLE_PROFILE)
+            if (callee.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
+                ThreadLocal::g_profiler.numOfMaxTC++;
+            }
+#endif
             return callee.asPointerValue()->call(*state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
         }
 #endif
@@ -1418,6 +1440,9 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         DEFINE_OPCODE(CallComplexCase)
             :
         {
+#if defined(ENABLE_PROFILE)
+            //ThreadLocal::g_profiler.numOfCall++;
+#endif
             CallComplexCase* code = (CallComplexCase*)programCounter;
             InterpreterSlowPath::callFunctionComplexCase(*state, code, registerFile, byteCodeBlock);
             ADD_PROGRAM_COUNTER(CallComplexCase);
@@ -1540,7 +1565,82 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         }
 
 #if defined(ENABLE_TCO)
-        // TCO : tail call optimization
+        // Tail recursion
+        DEFINE_OPCODE(TailRecursion)
+            :
+        {
+            TailRecursion* code = (TailRecursion*)programCounter;
+            const Value& callee = registerFile[code->m_calleeIndex];
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfCall++;
+#endif
+
+            if (UNLIKELY(callee != Value(state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->functionObject()))) {
+#if defined(ENABLE_PROFILE)
+                ThreadLocal::g_profiler.numOfTCFail++;
+                if (callee.isPointerValue() && callee.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
+                    ThreadLocal::g_profiler.numOfMaxTC++;
+                }
+#endif
+                // goto slow path
+                return InterpreterSlowPath::tailRecursionSlowCase(*state, code, byteCodeBlock, callee, registerFile);
+            }
+
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfTCHit++;
+            ThreadLocal::g_profiler.numOfTRHit++;
+            ThreadLocal::g_profiler.numOfMaxTC++;
+            ThreadLocal::g_profiler.sizeOfReusedStack += (sizeof(Value) * (byteCodeBlock->m_requiredTotalRegisterNumber + 1) + sizeof(FunctionEnvironmentRecordOnStack<false, false>) + sizeof(LexicalEnvironment) + sizeof(ExecutionState));
+#endif
+            if (UNLIKELY(!state->inTCO())) {
+                // At the start of tail call, we need to allocate a buffer for arguments
+                // because recursive tail call reuses this buffer
+                state->initTCOWithBuffer(Interpreter::tcoBuffer);
+            }
+            state->m_argc = code->m_argumentCount;
+
+            // fast tail recursion
+            ASSERT(callee.isPointerValue() && callee.asPointerValue()->isScriptFunctionObject());
+            ASSERT(callee.asPointerValue()->asScriptFunctionObject()->codeBlock() == byteCodeBlock->codeBlock());
+            ASSERT(state->inTCO() && (state->m_argc <= TCO_ARGUMENT_COUNT_LIMIT));
+#ifndef NDEBUG
+            // check this value
+            if (code->m_receiverIndex == REGISTER_LIMIT) {
+                if (state->inStrictMode()) {
+                    ASSERT(registerFile[byteCodeBlock->m_requiredOperandRegisterNumber].isUndefined());
+                } else {
+                    ASSERT(registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] == Value(state->context()->globalObjectProxy()));
+                }
+            }
+#endif
+
+            // its safe to overwrite arguments because old arguments are no longer necessary
+            for (size_t i = 0; i < state->m_argc; i++) {
+                state->m_argv[i] = registerFile[code->m_argumentsStartIndex + i];
+            }
+
+            if (code->m_receiverIndex != REGISTER_LIMIT) {
+                const Value& receiver = registerFile[code->m_receiverIndex];
+                if (state->inStrictMode()) {
+                    registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver;
+                } else {
+                    if (receiver.isUndefinedOrNull()) {
+                        registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = state->context()->globalObjectProxy();
+                    } else {
+                        registerFile[byteCodeBlock->m_requiredOperandRegisterNumber] = receiver.toObject(*state);
+                    }
+                }
+            }
+
+            // set programCounter
+            programCounter = reinterpret_cast<size_t>(byteCodeBlock->m_code.data());
+            ASSERT(state->m_programCounter == &programCounter);
+
+            NEXT_INSTRUCTION();
+        }
+
+        // TCO : general tail call optimization
         DEFINE_OPCODE(TailCall)
             :
         {
@@ -1549,6 +1649,9 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
             ASSERT(byteCodeBlock->m_codeBlock->isTailCallTarget(code->m_argumentCount));
             ASSERT(code->m_argumentCount <= TCO_ARGUMENT_COUNT_LIMIT);
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfCall++;
+#endif
             const Value& calleeValue = registerFile[code->m_calleeIndex];
 
             if (calleeValue.isPointerValue() && calleeValue.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
@@ -1558,9 +1661,23 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                     ASSERT(programCounter == (size_t)byteCodeBlock->m_code.data());
                     ASSERT(state->m_programCounter == &programCounter);
 
+#if defined(ENABLE_PROFILE)
+                    ThreadLocal::g_profiler.numOfTCHit++;
+                    ThreadLocal::g_profiler.numOfMaxTC++;
+#endif
+
                     if (UNLIKELY(!state->lexicalEnvironment())) {
                         // should allocate environment stuctures on the stack
                         ScriptFunctionObject* callee = calleeValue.asPointerValue()->asScriptFunctionObject();
+#if defined(ENABLE_STACK_ON_HEAP)
+                        FunctionEnvironmentRecord* record = new FunctionEnvironmentRecordOnStack<false, false>(callee);
+                        LexicalEnvironment* lexEnv = new LexicalEnvironment(record, callee->outerEnvironment()
+#ifndef NDEBUG
+                                                                                        ,
+                                                                            false
+#endif
+                        );
+#else
                         FunctionEnvironmentRecord* record = new (alloca(sizeof(FunctionEnvironmentRecordOnStack<false, false>))) FunctionEnvironmentRecordOnStack<false, false>(callee);
                         LexicalEnvironment* lexEnv = new (alloca(sizeof(LexicalEnvironment))) LexicalEnvironment(record, callee->outerEnvironment()
 #ifndef NDEBUG
@@ -1568,6 +1685,7 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                                                                                                                  false
 #endif
                         );
+#endif
                         state->m_lexicalEnvironment = lexEnv;
                     }
 
@@ -1579,6 +1697,12 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
                 }
             }
 
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfTCFail++;
+            if (calleeValue.isPointerValue() && calleeValue.asPointerValue()->canBeTailCallTargetRuntime(code->m_argumentCount)) {
+                ThreadLocal::g_profiler.numOfMaxTC++;
+            }
+#endif
             // goto slow path
             return InterpreterSlowPath::tailCallSlowCase(*state, code, calleeValue, registerFile);
         }
@@ -1589,6 +1713,9 @@ Value Interpreter::interpret(ExecutionState* state, ByteCodeBlock* byteCodeBlock
         {
             TailRecursionInTry* code = (TailRecursionInTry*)programCounter;
             const Value& callee = registerFile[code->m_calleeIndex];
+#if defined(ENABLE_PROFILE)
+            RELEASE_ASSERT_NOT_REACHED();
+#endif
 
             if (UNLIKELY(callee != Value(state->resolveCallee()))) {
                 // should call resolveCallee because try-catch-finally block is executed in a sub-interpreter
@@ -4915,6 +5042,24 @@ NEVER_INLINE int InterpreterSlowPath::evaluateImportAssertionOperation(Execution
 }
 
 #if defined(ENABLE_TCO)
+NEVER_INLINE Value InterpreterSlowPath::tailRecursionSlowCase(ExecutionState& state, TailRecursion* code, ByteCodeBlock* byteCodeBlock, const Value& callee, Value* registerFile)
+{
+    // fail to tail recursion
+    // fix the caller's call site to TailCall
+    code->changeOpcode(Opcode::TailCallOpcode);
+    byteCodeBlock->codeBlock()->disableTailRecursion();
+
+    // if PointerValue is not callable, PointerValue::call function throws builtin error
+    // https://www.ecma-international.org/ecma-262/6.0/#sec-call
+    // If IsCallable(F) is false, throw a TypeError exception.
+    if (UNLIKELY(!callee.isPointerValue())) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::NOT_Callable);
+    }
+
+    const Value& receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
+    return callee.asPointerValue()->call(state, receiver, code->m_argumentCount, &registerFile[code->m_argumentsStartIndex]);
+}
+
 NEVER_INLINE Value InterpreterSlowPath::prepareTailCallOptimization(ExecutionState* state, TailCall* code, ScriptFunctionObject* callee, ByteCodeBlock*& callerByteBlock, size_t& programCounter, const Value* registerFile)
 {
     ASSERT(!callee->isScriptArrowFunctionObject() && !!callerByteBlock);
@@ -4935,11 +5080,20 @@ NEVER_INLINE Value InterpreterSlowPath::prepareTailCallOptimization(ExecutionSta
         const Value& receiver = (code->m_receiverIndex == REGISTER_LIMIT) ? Value() : registerFile[code->m_receiverIndex];
         Context* context = calleeBlock->context();
         bool isStrict = calleeBlock->isStrict();
-        bool isTailRecursion = (calleeByteBlock == callerByteBlock);
-        //bool isTailRecursion = (callee == state->lexicalEnvironment()->record()->asDeclarativeEnvironmentRecord()->asFunctionEnvironmentRecord()->functionObject());
+        bool isTailRecursion = (calleeByteBlock == callerByteBlock) && (!callerByteBlock->codeBlock()->isTailRecursionDisabled());
 
         // tail recursion reuses environment structures
-        if (!isTailRecursion) {
+        if (isTailRecursion) {
+            // convert to fast tail recursion
+            code->changeOpcode(Opcode::TailRecursionOpcode);
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.numOfTRHit++;
+            ThreadLocal::g_profiler.sizeOfReusedStack += (sizeof(Value) * (calleeByteBlock->m_requiredTotalRegisterNumber + 1) + sizeof(FunctionEnvironmentRecordOnStack<false, false>) + sizeof(LexicalEnvironment) + sizeof(ExecutionState));
+#endif
+        } else {
+#if defined(ENABLE_PROFILE)
+            ThreadLocal::g_profiler.sizeOfReusedStack += (sizeof(Value) * (calleeByteBlock->m_requiredTotalRegisterNumber + 1) + sizeof(ExecutionState));
+#endif
             FunctionEnvironmentRecord* record = nullptr;
             LexicalEnvironment* lexEnv = nullptr;
             if (!calleeBlock->canAllocateEnvironmentOnStack()) {
@@ -4958,6 +5112,9 @@ NEVER_INLINE Value InterpreterSlowPath::prepareTailCallOptimization(ExecutionSta
                                                                               false
 #endif
                 );
+#if defined(ENABLE_PROFILE)
+                ThreadLocal::g_profiler.sizeOfReusedStack += (sizeof(FunctionEnvironmentRecordOnStack<false, false>) + sizeof(LexicalEnvironment));
+#endif
             }
             // other case, environment structures need to be newly allocated on the stack using alloca method
             // this will be handled right after this slow path

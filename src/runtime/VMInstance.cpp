@@ -228,6 +228,10 @@ void vmReclaimEndCallback(void* data)
 {
     VMInstance* self = (VMInstance*)data;
 
+#if defined(ENABLE_PROFILE)
+    ThreadLocal::g_profiler.numOfGC++;
+#endif
+
 #if defined(ENABLE_COMPRESSIBLE_STRING) || defined(ENABLE_WASM)
     auto currentTick = fastTickCount();
 #if defined(ENABLE_COMPRESSIBLE_STRING)

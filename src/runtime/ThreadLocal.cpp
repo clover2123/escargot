@@ -53,6 +53,10 @@ MAY_THREAD_LOCAL ASTAllocator* ThreadLocal::g_astAllocator;
 MAY_THREAD_LOCAL WTF::BumpPointerAllocator* ThreadLocal::g_bumpPointerAllocator;
 MAY_THREAD_LOCAL void* ThreadLocal::g_customData;
 
+#if defined(ENABLE_PROFILE)
+MAY_THREAD_LOCAL Profiler ThreadLocal::g_profiler;
+#endif
+
 GCEventListenerSet::EventListenerVector* GCEventListenerSet::ensureMarkStartListeners()
 {
     if (!m_markStartListeners) {
@@ -198,6 +202,20 @@ void ThreadLocal::initialize()
     g_wasmContext.lastGCCheckTime = 0;
 #endif
 
+#if defined(ENABLE_PROFILE)
+    g_profiler.numOfRS = 0;
+    g_profiler.numOfTCP = 0;
+
+    g_profiler.numOfCall = 0;
+    g_profiler.numOfMaxTC = 0;
+    g_profiler.numOfTCHit = 0;
+    g_profiler.numOfTCFail = 0;
+    g_profiler.numOfTRHit = 0;
+
+    g_profiler.numOfGC = 0;
+    g_profiler.sizeOfReusedStack = 0;
+#endif
+
     // g_gcEventListenerSet
     g_gcEventListenerSet = new GCEventListenerSet();
     // in addition, register genericGCEventListener here too
@@ -241,6 +259,20 @@ void ThreadLocal::finalize()
     g_wasmContext.store = nullptr;
     g_wasmContext.engine = nullptr;
     g_wasmContext.lastGCCheckTime = 0;
+#endif
+
+#if defined(ENABLE_PROFILE)
+    printf("NumOfRS: %lu\n", g_profiler.numOfRS);
+    printf("NumOfTCP: %lu\n", g_profiler.numOfTCP);
+
+    printf("NumOfCall: %lu\n", g_profiler.numOfCall);
+    printf("NumOfMaxTC: %lu\n", g_profiler.numOfMaxTC);
+    printf("NumOfTCHit: %lu\n", g_profiler.numOfTCHit);
+    printf("NumOfTCFail: %lu\n", g_profiler.numOfTCFail);
+    printf("NumOfTRHit: %lu\n", g_profiler.numOfTRHit);
+
+    printf("GCCount: %lu\n", g_profiler.numOfGC);
+    printf("ReusedStackSize: %lu bytes\n", g_profiler.sizeOfReusedStack);
 #endif
 
     // g_gcEventListenerSet

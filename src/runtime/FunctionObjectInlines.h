@@ -112,6 +112,15 @@ public:
         LexicalEnvironment* lexEnv;
 
         if (LIKELY(codeBlock->canAllocateEnvironmentOnStack())) {
+#if defined(ENABLE_STACK_ON_HEAP)
+            record = new FunctionEnvironmentRecordOnStack<canBindThisValueOnEnvironment, hasNewTargetOnEnvironment>(self);
+            lexEnv = new LexicalEnvironment(record, self->outerEnvironment()
+#ifndef NDEBUG
+                                                        ,
+                                            false
+#endif
+            );
+#else
             // no capture, very simple case
             record = new (alloca(sizeof(FunctionEnvironmentRecordOnStack<canBindThisValueOnEnvironment, hasNewTargetOnEnvironment>))) FunctionEnvironmentRecordOnStack<canBindThisValueOnEnvironment, hasNewTargetOnEnvironment>(self);
             lexEnv = new (alloca(sizeof(LexicalEnvironment))) LexicalEnvironment(record, self->outerEnvironment()
@@ -120,6 +129,7 @@ public:
                                                                                  false
 #endif
             );
+#endif
         } else {
             record = createFunctionEnvironmentRecord<FunctionObjectType, hasNewTargetOnEnvironment, canBindThisValueOnEnvironment>(state, self, codeBlock);
             lexEnv = new LexicalEnvironment(record, self->outerEnvironment());
@@ -131,7 +141,11 @@ public:
             registerFile = (Value*)CustomAllocator<Value>().allocate(registerFileSize);
         } else {
             // keep ByteCodeBlock pointer in registerFileBuffer
+#if defined(ENABLE_STACK_ON_HEAP)
+            registerFile = (Value*)GC_MALLOC((registerFileSize) * sizeof(Value) + sizeof(size_t));
+#else
             registerFile = (Value*)alloca((registerFileSize) * sizeof(Value) + sizeof(size_t));
+#endif
             memcpy(&registerFile[registerFileSize], &blk, sizeof(size_t));
         }
 
@@ -198,9 +212,17 @@ public:
             newState->setPauseSource(new ExecutionPauser(state, self, newState, registerFile, blk));
             newState->pauseSource()->m_promiseCapability = PromiseObject::newPromiseCapability(*newState, newState->context()->globalObject()->promise());
         } else if (blk->needsExtendedExecutionState()) {
+#if defined(ENABLE_STACK_ON_HEAP)
+            newState = new ExtendedExecutionState(ctx, &state, lexEnv, argc, argv, isStrict);
+#else
             newState = new (alloca(sizeof(ExtendedExecutionState))) ExtendedExecutionState(ctx, &state, lexEnv, argc, argv, isStrict);
+#endif
         } else {
+#if defined(ENABLE_STACK_ON_HEAP)
+            newState = new ExecutionState(ctx, &state, lexEnv, argc, argv, isStrict);
+#else
             newState = new (alloca(sizeof(ExecutionState))) ExecutionState(ctx, &state, lexEnv, argc, argv, isStrict);
+#endif
         }
 
         // prepare receiver(this variable)

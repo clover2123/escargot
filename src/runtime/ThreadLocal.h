@@ -36,6 +36,22 @@ struct WASMContext {
 
 namespace Escargot {
 
+#if defined(ENABLE_PROFILE)
+struct Profiler {
+    size_t numOfRS; // number of return statement
+    size_t numOfTCP; // number of tail call in return statement
+
+    size_t numOfCall; // number of call count
+    size_t numOfMaxTC; // number of (possible) maximum tail call count
+    size_t numOfTCHit; // number of tail call hits
+    size_t numOfTCFail; // number of tail call fails
+    size_t numOfTRHit; // number of tail recursion hits
+
+    size_t numOfGC; // number of GC
+    size_t sizeOfReusedStack; // total accumulated size of reused stack (byte)
+};
+#endif
+
 class ASTAllocator;
 
 class GCEventListenerSet {
@@ -104,6 +120,10 @@ class ThreadLocal {
     static MAY_THREAD_LOCAL void* g_customData;
 
 public:
+#if defined(ENABLE_PROFILE)
+    static MAY_THREAD_LOCAL Profiler g_profiler;
+#endif
+
     static void initialize();
     static void finalize();
     static bool isInited()

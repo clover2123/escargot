@@ -795,6 +795,18 @@ public:
         m_hasDynamicSourceCode = true;
     }
 
+#if defined(ENABLE_TCO)
+    bool isTailRecursionDisabled() const
+    {
+        return m_isTailRecursionDisabled;
+    }
+
+    void disableTailRecursion()
+    {
+        m_isTailRecursionDisabled = true;
+    }
+#endif
+
 #ifdef ESCARGOT_DEBUGGER
     bool markDebugging() const
     {
@@ -1000,6 +1012,9 @@ protected:
     bool m_allowArguments : 1;
     // represent if its source code is created dynamically by createDynamicFunctionScript
     bool m_hasDynamicSourceCode : 1;
+#if defined(ENABLE_TCO)
+    bool m_isTailRecursionDisabled : 1;
+#endif
 #ifdef ESCARGOT_DEBUGGER
     // mark that this InterpretedCodeBlock should generate debugging bytecode (breakpoint)
     bool m_markDebugging : 1;

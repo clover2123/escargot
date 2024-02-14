@@ -72,6 +72,16 @@ protected:
 #endif
 
         // prepare env, ec
+#if defined(ENABLE_STACK_ON_HEAP)
+        FunctionEnvironmentRecord* record = new FunctionEnvironmentRecordOnStack<false, false>(this);
+        LexicalEnvironment* lexEnv = new LexicalEnvironment(record, outerEnvironment()
+#ifndef NDEBUG
+                                                                        ,
+                                                            false
+#endif
+        );
+        char* registerFileBuffer = (char*)GC_MALLOC(sizeof(Value) * registerFileSize + sizeof(size_t));
+#else
         ASSERT(codeBlock->canAllocateEnvironmentOnStack());
         FunctionEnvironmentRecordOnStack<false, false> record(this);
         LexicalEnvironment lexEnv(&record, outerEnvironment()
@@ -83,12 +93,17 @@ protected:
 
         // keep ByteCodeBlock pointer in registerFileBuffer
         char registerFileBuffer[sizeof(Value) * registerFileSize + sizeof(size_t)];
+#endif
         Value* registerFile = reinterpret_cast<Value*>(registerFileBuffer);
         memcpy(registerFileBuffer + sizeof(Value) * registerFileSize, &blk, sizeof(size_t));
 
         Value* stackStorage = registerFile + registerSize;
 
+#if defined(ENABLE_STACK_ON_HEAP)
+        ExecutionState newState(ctx, &state, lexEnv, argc, argv, isStrict);
+#else
         ExecutionState newState(ctx, &state, &lexEnv, argc, argv, isStrict);
+#endif
         if (isStrict) {
             stackStorage[0] = thisValue;
         } else {
@@ -158,6 +173,16 @@ protected:
 #endif
 
         // prepare env, ec
+#if defined(ENABLE_STACK_ON_HEAP)
+        FunctionEnvironmentRecord* record = new FunctionEnvironmentRecordOnStack<false, true>(this);
+        LexicalEnvironment* lexEnv = new LexicalEnvironment(record, outerEnvironment()
+#ifndef NDEBUG
+                                                                        ,
+                                                            false
+#endif
+        );
+        char* registerFileBuffer = (char*)GC_MALLOC(sizeof(Value) * registerFileSize + sizeof(size_t));
+#else
         ASSERT(codeBlock->canAllocateEnvironmentOnStack());
         FunctionEnvironmentRecordOnStack<false, true> record(this);
         LexicalEnvironment lexEnv(&record, outerEnvironment()
@@ -169,14 +194,23 @@ protected:
 
         // keep ByteCodeBlock pointer in registerFileBuffer
         char registerFileBuffer[sizeof(Value) * registerFileSize + sizeof(size_t)];
+#endif
         Value* registerFile = reinterpret_cast<Value*>(registerFileBuffer);
         memcpy(registerFileBuffer + sizeof(Value) * registerFileSize, &blk, sizeof(size_t));
         Value* stackStorage = registerFile + registerSize;
 
+#if defined(ENABLE_STACK_ON_HEAP)
+        ExecutionState newState(ctx, &state, lexEnv, argc, argv, isStrict);
+#else
         ExecutionState newState(ctx, &state, &lexEnv, argc, argv, isStrict);
+#endif
         stackStorage[0] = thisArgument;
 
+#if defined(ENABLE_STACK_ON_HEAP)
+        record->setNewTarget(newTarget);
+#else
         record.setNewTarget(newTarget);
+#endif
 
         const Value returnValue = Interpreter::interpret(&newState, blk, reinterpret_cast<const size_t>(blk->m_code.data()), registerFile);
         if (shouldClearStack) {

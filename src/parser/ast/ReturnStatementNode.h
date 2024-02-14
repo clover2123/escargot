@@ -47,6 +47,10 @@ public:
         }
 #endif /* ESCARGOT_DEBUGGER */
 
+#if defined(ENABLE_PROFILE)
+        ThreadLocal::g_profiler.numOfRS++;
+#endif
+
         if (context->tryCatchWithBlockStatementCount() != 0) {
             ByteCodeRegisterIndex index;
             if (m_argument) {
@@ -58,6 +62,10 @@ public:
                     context->setReturnRegister(index);
                     m_argument->generateTCOExpressionByteCode(codeBlock, context, index, isTailCallForm);
                     context->setReturnRegister(SIZE_MAX);
+#if defined(ENABLE_PROFILE)
+                    if (isTailCallForm)
+                        ThreadLocal::g_profiler.numOfTCP++;
+#endif
                 } else {
                     m_argument->generateExpressionByteCode(codeBlock, context, index);
                 }
@@ -92,6 +100,11 @@ public:
                 r = context->getRegister();
                 codeBlock->pushCode(LoadLiteral(ByteCodeLOC(m_loc.index), r, Value()), context, this->m_loc.index);
             }
+
+#if defined(ENABLE_PROFILE)
+            if (isTailCallForm)
+                ThreadLocal::g_profiler.numOfTCP++;
+#endif
 
 #if defined(ENABLE_TCO)
             if (!isTailCallForm || (m_argument->type() != CallExpression))
