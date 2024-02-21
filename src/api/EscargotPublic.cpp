@@ -1138,6 +1138,7 @@ void VMInstanceRef::setOnVMInstanceDelete(OnVMInstanceDelete cb)
                                        (void*)cb);
 }
 
+#if defined(ENABLE_EXTENDED_API)
 void VMInstanceRef::registerErrorCreationCallback(ErrorCallback cb)
 {
     toImpl(this)->registerErrorCreationCallback([](ExecutionState& state, ErrorObject* err, void* cb) -> void {
@@ -1165,6 +1166,15 @@ void VMInstanceRef::unregisterErrorThrowCallback()
 {
     toImpl(this)->unregisterErrorThrowCallback();
 }
+#else
+void VMInstanceRef::registerErrorCreationCallback(ErrorCallback cb)
+{
+    UNUSED_PARAMETER(cb);
+}
+void VMInstanceRef::registerErrorThrowCallback(ErrorCallback cb) { UNUSED_PARAMETER(cb); }
+void VMInstanceRef::unregisterErrorCreationCallback() {}
+void VMInstanceRef::unregisterErrorThrowCallback() {}
+#endif
 
 void VMInstanceRef::registerPromiseHook(PromiseHook promiseHook)
 {
@@ -3234,7 +3244,7 @@ GlobalObjectRef* ExecutionStateRef::resolveCallerLexicalGlobalObject()
     return toRef(ctx->globalObject());
 }
 
-#if defined(ESCARGOT_ENABLE_TEST)
+#if defined(ENABLE_EXTENDED_API)
 bool ExecutionStateRef::onTry()
 {
     return toImpl(this)->onTry();

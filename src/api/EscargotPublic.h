@@ -636,7 +636,7 @@ public:
     GCManagedVector<FunctionObjectRef*> resolveCallstack(); // resolve list of callee
     GlobalObjectRef* resolveCallerLexicalGlobalObject(); // resolve caller's lexical global object
 
-    // these 3 functions are used only for test purpose
+    // these 3 functions are used only for third party usage
     bool onTry();
     bool onCatch();
     bool onFinally();
@@ -662,6 +662,7 @@ public:
 
     // register ErrorCallback which is triggered when each Error constructor (e.g. new TypeError()) invoked or thrown
     // parameter `err` stands for the newly created ErrorObject
+    // these functions are used only for third party usage
     typedef void (*ErrorCallback)(ExecutionStateRef* state, ErrorObjectRef* err);
     void registerErrorCreationCallback(ErrorCallback cb);
     void registerErrorThrowCallback(ErrorCallback cb);
