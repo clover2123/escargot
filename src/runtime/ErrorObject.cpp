@@ -22,7 +22,7 @@
 #include "Context.h"
 #include "SandBox.h"
 #include "NativeFunctionObject.h"
-#ifndef NDEBUG
+#if defined(ENABLE_EXTENDED_API)
 #include "VMInstance.h"
 #endif
 

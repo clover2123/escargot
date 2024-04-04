@@ -125,6 +125,7 @@ Template::CachedObjectStructure Template::constructObjectStructure(Context* ctx,
     CachedObjectStructure s;
     s.m_objectStructure = ObjectStructure::create(ctx, std::move(structureItemVector));
     s.m_inlineCacheable = isInlineCacheable;
+    s.m_objectStructure->markReferencedByInlineCache();
     return s;
 }
 
