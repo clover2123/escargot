@@ -11,7 +11,7 @@ IF (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU" OR ${CMAKE_CXX_COMPILER_ID} STREQUAL
         SET (RIB_CFLAGS_INTERNAL ${RIB_CFLAGS_INTERNAL} -O2)
     ENDIF()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -g3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti")
 
     link_libraries(-ldl)
 ELSE()

@@ -74,7 +74,9 @@ SET (ESCARGOT_SRC_LIST
     ${CCTEST_SRC}
 )
 
+#######################################################
 # GCUTIL
+#######################################################
 IF (${ESCARGOT_OUTPUT} STREQUAL "shared_lib")
     SET (ESCARGOT_THIRDPARTY_CFLAGS ${ESCARGOT_THIRDPARTY_CFLAGS} ${ESCARGOT_CXXFLAGS_SHAREDLIB})
 ELSEIF (${ESCARGOT_OUTPUT} STREQUAL "static_lib")
@@ -93,10 +95,11 @@ ENDIF()
 SET (GCUTIL_MODE ${ESCARGOT_MODE})
 
 ADD_SUBDIRECTORY (third_party/GCutil)
-
 SET (ESCARGOT_LIBRARIES ${ESCARGOT_LIBRARIES} gc-lib)
 
+#######################################################
 # LIBBF
+#######################################################
 ADD_LIBRARY (libbf STATIC
     ${ESCARGOT_THIRD_PARTY_ROOT}/libbf/libbf.c
     ${ESCARGOT_THIRD_PARTY_ROOT}/libbf/cutils.c)
@@ -116,23 +119,20 @@ TARGET_COMPILE_OPTIONS (libbf PRIVATE ${LIBBF_CFLAGS})
 
 SET (ESCARGOT_LIBRARIES ${ESCARGOT_LIBRARIES} libbf)
 
+#######################################################
+# RUNTIME ICU BINDER
+#######################################################
 IF (ESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN)
-    # RUNTIME ICU BINDER
-    SET (RIB_CFLAGS ${ESCARGOT_CXXFLAGS})
-
-    IF (${ESCARGOT_OUTPUT} STREQUAL "shared_lib")
-        SET (RIB_CFLAGS ${RIB_CFLAGS} ${ESCARGOT_CXXFLAGS_SHAREDLIB})
-    ELSEIF (${ESCARGOT_OUTPUT} STREQUAL "static_lib")
-        SET (RIB_CFLAGS ${RIB_CFLAGS} ${ESCARGOT_CXXFLAGS_STATICLIB})
-    ENDIF()
-
+    SET (RIB_CFLAGS ${ESCARGOT_THIRDPARTY_CFLAGS})
     SET (RIB_MODE ${ESCARGOT_MODE})
 
     ADD_SUBDIRECTORY (third_party/runtime_icu_binder)
     SET (ESCARGOT_LIBRARIES ${ESCARGOT_LIBRARIES} runtime-icu-binder-static)
 ENDIF()
 
+#######################################################
 # WebAssembly (walrus)
+#######################################################
 IF (ESCARGOT_WASM)
     SET (WALRUS_CXXFLAGS
         ${ESCARGOT_THIRDPARTY_CFLAGS} # we can share flags with gcutil
@@ -149,7 +149,6 @@ IF (ESCARGOT_WASM)
     ENDIF()
 
     ADD_SUBDIRECTORY (third_party/walrus)
-
     SET (ESCARGOT_LIBRARIES ${ESCARGOT_LIBRARIES} walrus)
 ENDIF()
 
