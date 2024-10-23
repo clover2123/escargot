@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  RUNNER: tools/run-tests.py
+  BUILD_OPTIONS: -DESCARGOT_MODE=release -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
+
+jobs:
+  build-mac64:
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        brew update
+        brew install cmake ninja pkg-config icu4c
+    - name: Build x64
+      run: |
+        # check cpu
+        sysctl -a | grep machdep.cpu
+        # add icu path to pkg_config_path
+        export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -H. -Bout/ $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        $RUNNER --engine="./out/escargot" new-es
+        mv out/escargot out/escargot-mac64
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: escargot
+        path: out/escargot-mac64
+
+  build-mac64arm:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        brew update
+        brew install cmake ninja pkg-config icu4c
+    - name: Build arm64
+      run: |
+        # check cpu
+        sysctl -a | grep machdep.cpu
+        # add icu path to pkg_config_path
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -H. -Bout/ $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        $RUNNER --engine="./out/escargot" new-es
+        mv out/escargot out/escargot-mac64arm
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: escargot
+        path: out/escargot-mac64arm
+
+  build-linux32:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libicu-dev
+    - name: Install ICU
+      run: |
+        wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_i386.deb
+        dpkg -X libicu-dev_70.1-2ubuntu1_i386.deb $GITHUB_WORKSPACE/icu32
+    - name: Build x86
+      run: |
+        export CXXFLAGS="-I$GITHUB_WORKSPACE/icu32/usr/include"
+        export LDFLAGS="-L$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu"
+        export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu/pkgconfig
+        cmake -H. -Bout/ -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        $RUNNER --engine="./out/escargot" new-es
+        mv out/escargot out/escargot-linux32
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: escargot
+        path: out/escargot-linux32
+
+  build-linux64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libicu-dev
+    - name: Install ICU
+      run: |
+        wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_amd64.deb
+        dpkg -X libicu-dev_70.1-2ubuntu1_amd64.deb $GITHUB_WORKSPACE/icu64
+    - name: Build x64
+      run: |
+        export CXXFLAGS="-I$GITHUB_WORKSPACE/icu64/usr/include"
+        export LDFLAGS="-L$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu"
+        export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu/pkgconfig
+        cmake -H. -Bout/ -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        $RUNNER --engine="./out/escargot" new-es
+        mv out/escargot out/escargot-linux64
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: escargot
+        path: out/escargot-linux64
+
+  build-linux64-wasm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib
+    - name: Build x64
+      run: |
+        cmake -H. -Bout/ -DESCARGOT_WASM=ON $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        $RUNNER --engine="./out/escargot" new-es wasm-js
+        mv out/escargot out/escargot-linux64-wasm
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: escargot
+        path: out/escargot-linux64-wasm
