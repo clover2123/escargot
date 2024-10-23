@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 env:
   RUNNER: tools/run-tests.py
@@ -33,7 +34,7 @@ jobs:
     - name: Install Packages
       run: |
         brew update
-        brew install cmake ninja pkg-config icu4c
+        brew install ninja icu4c@75
     - name: Build x64
       env:
         BUILD_OPTIONS: -DESCARGOT_WASM=ON -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
@@ -41,7 +42,8 @@ jobs:
         # check cpu
         sysctl -a | grep machdep.cpu
         # add icu path to pkg_config_path
-        export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        brew --prefix icu4c@75
+        export PKG_CONFIG_PATH="/usr/local/opt/icu4c@75/lib/pkgconfig:$PKG_CONFIG_PATH"
         cmake -H. -Bout/debug/ -DESCARGOT_MODE=debug $BUILD_OPTIONS
         ninja -Cout/debug/
         $RUNNER --engine="./out/debug/escargot" new-es
@@ -59,7 +61,7 @@ jobs:
     - name: Install Packages
       run: |
         brew update
-        brew install cmake ninja pkg-config icu4c
+        brew install ninja icu4c@75
     - name: Build arm64
       env:
         BUILD_OPTIONS: -DESCARGOT_WASM=ON -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
@@ -67,7 +69,8 @@ jobs:
         # check cpu
         sysctl -a | grep machdep.cpu
         # add icu path to pkg_config_path
-        export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        brew --prefix icu4c@75
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@75/lib/pkgconfig:$PKG_CONFIG_PATH"
         cmake -H. -Bout/debug/ -DESCARGOT_MODE=debug $BUILD_OPTIONS
         ninja -Cout/debug/
         $RUNNER --engine="./out/debug/escargot" new-es
@@ -89,7 +92,6 @@ jobs:
     - name: Install Packages
       run: |
         brew update
-        brew install cmake pkg-config
     - name: Set up JDK
       uses: actions/setup-java@v4.1.0
       with:
@@ -311,7 +313,6 @@ jobs:
       uses: mxschmitt/action-tmate@v3
       timeout-minutes: 15
 
-
   build-test-on-x64-release:
     runs-on: ubuntu-latest
     strategy:
@@ -368,8 +369,8 @@ jobs:
         dpkg -X libicu-dev_70.1-2ubuntu1_amd64.deb $GITHUB_WORKSPACE/icu64
     - name: Build x86/x64
       env:
-        BUILD_OPTIONS_X86: -DESCARGOT_MODE=debug -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_OUTPUT=shell -GNinja
-        BUILD_OPTIONS_X64: -DESCARGOT_MODE=debug -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
+        BUILD_OPTIONS_X86: -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_MODE=debug -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_OUTPUT=shell -GNinja
+        BUILD_OPTIONS_X64: -DESCARGOT_MODE=debug -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_OUTPUT=shell -GNinja
       run: |
         export CXXFLAGS="-I$GITHUB_WORKSPACE/icu32/usr/include"
         export LDFLAGS="-L$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu"
@@ -476,7 +477,7 @@ jobs:
         sudo apt-get install -y ninja-build gcc-multilib g++-multilib
     - name: Build x86/x64
       env:
-        BUILD_OPTIONS_X86: -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_MODE=debug -DESCARGOT_THREADING=ON -DESCARGOT_DEBUGGER=1 -DESCARGOT_USE_EXTENDED_API=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=cctest -GNinja
+        BUILD_OPTIONS_X86: -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_MODE=debug -DESCARGOT_THREADING=ON -DESCARGOT_DEBUGGER=1 -DESCARGOT_USE_EXTENDED_API=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=cctest -GNinja
         BUILD_OPTIONS_X64: -DESCARGOT_MODE=debug -DESCARGOT_THREADING=1 -DESCARGOT_DEBUGGER=1 -DESCARGOT_USE_EXTENDED_API=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=cctest -GNinja
       run: |
         cmake -H. -Bout/cctest/x86 $BUILD_OPTIONS_X86
@@ -502,8 +503,6 @@ jobs:
       run: |
         wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_i386.deb
         dpkg -X libicu-dev_70.1-2ubuntu1_i386.deb $GITHUB_WORKSPACE/icu32
-        wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_amd64.deb
-        dpkg -X libicu-dev_70.1-2ubuntu1_amd64.deb $GITHUB_WORKSPACE/icu64
     - name: Build x86
       env:
         BUILD_OPTIONS: -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_MODE=debug -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_CODE_CACHE=ON -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
@@ -517,9 +516,6 @@ jobs:
       env:
         BUILD_OPTIONS: -DESCARGOT_MODE=debug -DESCARGOT_CODE_CACHE=ON -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
       run: |
-        export CXXFLAGS="-I$GITHUB_WORKSPACE/icu64/usr/include"
-        export LDFLAGS="-L$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu"
-        export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu/pkgconfig
         cmake -H. -Bout/codecache/x64 $BUILD_OPTIONS
         ninja -Cout/codecache/x64
     - name: Build x64 Release Mode
