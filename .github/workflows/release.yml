@@ -1,0 +1,234 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  RUNNER: tools/run-tests.py
+  BUILD_OPTIONS: -DESCARGOT_MODE=release -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
+
+jobs:
+  build-mac64:
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        brew update
+        brew install ninja icu4c@75
+    - name: Build x64
+      run: |
+        # check cpu
+        sysctl -a | grep machdep.cpu
+        # add icu path to pkg_config_path
+        brew --prefix icu4c@75
+        export PKG_CONFIG_PATH="/usr/local/opt/icu4c@75/lib/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -H. -Bout/ $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        strip out/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
+        mv out/escargot out/escargot-mac64
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac64-result
+        path: out/escargot-mac64
+
+  build-mac64arm:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        brew update
+        brew install ninja icu4c@75
+    - name: Build arm64
+      run: |
+        # check cpu
+        sysctl -a | grep machdep.cpu
+        # add icu path to pkg_config_path
+        brew --prefix icu4c@75
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@75/lib/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -H. -Bout/ $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        strip out/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
+        mv out/escargot out/escargot-mac64arm
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac64arm-result
+        path: out/escargot-mac64arm
+
+  build-windows:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        arch: [x86, x64]
+    steps:
+    - name: Set git cllf config
+      run: |
+        git config --global core.autocrlf input
+        git config --global core.eol lf
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - uses: szenius/set-timezone@v2.0
+      with:
+        timezoneWindows: "Pacific Standard Time"
+    - uses: lukka/get-cmake@latest
+    - uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+      with:
+        sdk-version: 20348
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install msvc redist package
+      run: |
+        (new-object System.Net.WebClient).DownloadFile('https://github.com/abbodi1406/vcredist/releases/download/v0.73.0/VisualCppRedist_AIO_x86_x64.exe','VisualCppRedist_AIO_x86_x64.exe')
+        .\VisualCppRedist_AIO_x86_x64.exe /y
+    - uses: ilammy/msvc-dev-cmd@v1.13.0
+      with:
+        arch: ${{ matrix.arch }}
+        sdk: "10.0.20348.0"
+    - name: Build ${{ matrix.arch }}
+      run: |
+        CMake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_VERSION:STRING="10.0" -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} -DESCARGOT_ARCH=${{ matrix.arch }} -Bout/ -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_WASM=ON -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=release
+        CMake --build out/ --config Release
+    - name: Check
+      run: |
+        python tools\run-tests.py --engine=%cd%\out\escargot.exe new-es
+        rename out\escargot.exe escargot-win-${{ matrix.arch }}.exe
+      shell: cmd
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-${{ matrix.arch }}-result
+        path: out\escargot-win-${{ matrix.arch }}.exe
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build gcc-multilib g++-multilib
+    - name: Install ICU
+      run: |
+        wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_i386.deb
+        dpkg -X libicu-dev_70.1-2ubuntu1_i386.deb $GITHUB_WORKSPACE/icu32
+        wget http://mirrors.kernel.org/ubuntu/pool/main/i/icu/libicu-dev_70.1-2ubuntu1_amd64.deb
+        dpkg -X libicu-dev_70.1-2ubuntu1_amd64.deb $GITHUB_WORKSPACE/icu64
+    - name: Build x86/x64
+      run: |
+        export CXXFLAGS="-I$GITHUB_WORKSPACE/icu32/usr/include"
+        export LDFLAGS="-L$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu"
+        export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/icu32/usr/lib/i386-linux-gnu/pkgconfig
+        cmake -H. -Bout/x86 -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86 -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_TEMPORAL=ON $BUILD_OPTIONS
+        export CXXFLAGS="-I$GITHUB_WORKSPACE/icu64/usr/include"
+        export LDFLAGS="-L$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu -Wl,-rpath=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu"
+        export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/icu64/usr/lib/x86_64-linux-gnu/pkgconfig
+        cmake -H. -Bout/x64 -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_TEMPORAL=ON $BUILD_OPTIONS
+        ninja -Cout/x86
+        ninja -Cout/x64
+    - name: Check
+      run: |
+        file out/x86/escargot
+        file out/x64/escargot
+        strip out/x86/escargot
+        strip out/x64/escargot
+        # set locale
+        sudo locale-gen en_US.UTF-8
+        export LANG=en_US.UTF-8
+        locale
+        # run test
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/x86/escargot" new-es test262
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/x64/escargot" new-es test262
+        mv out/x86/escargot out/escargot-linux-x86
+        mv out/x64/escargot out/escargot-linux-x64
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-result
+        path: out/escargot-linux-*
+
+  build-linux-wasm:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib
+    - name: Build x64
+      run: |
+        cmake -H. -Bout/ -DESCARGOT_WASM=ON $BUILD_OPTIONS
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        strip out/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es wasm-js
+        mv out/escargot out/escargot-linux-x64-wasm
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-wasm-result
+        path: out/escargot-linux-x64-wasm
+
+  update-release:
+    needs: [build-mac64, build-mac64arm, build-windows, build-linux, build-linux-wasm]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download mac64 result
+      uses: actions/download-artifact@v4
+      with:
+        name: mac64-result
+        path: artifacts
+    - name: Download mac64arm result
+      uses: actions/download-artifact@v4
+      with:
+        name: mac64arm-result
+        path: artifacts
+    - name: Download win32 result
+      uses: actions/download-artifact@v4
+      with:
+        name: win-x86-result
+        path: artifacts
+    - name: Download win64 result
+      uses: actions/download-artifact@v4
+      with:
+        name: win-x64-result
+        path: artifacts
+    - name: Download linux result
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-result
+        path: artifacts
+    - name: Download linux-wasm result
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-wasm-result
+        path: artifacts
+    - name: Upload to release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          artifacts/escargot-*
