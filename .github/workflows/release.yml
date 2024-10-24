@@ -32,6 +32,7 @@ jobs:
     - name: Check
       run: |
         file out/escargot
+        strip out/escargot
         $RUNNER --engine="./out/escargot" new-es
         mv out/escargot out/escargot-mac64
     - name: upload
@@ -61,6 +62,7 @@ jobs:
     - name: Check
       run: |
         file out/escargot
+        strip out/escargot
         $RUNNER --engine="./out/escargot" new-es
         mv out/escargot out/escargot-mac64arm
     - name: upload
@@ -70,7 +72,7 @@ jobs:
         path: out/escargot-mac64arm
 
   build-linux32:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
       with:
@@ -93,6 +95,7 @@ jobs:
     - name: Check
       run: |
         file out/escargot
+        strip out/escargot
         $RUNNER --engine="./out/escargot" new-es
         mv out/escargot out/escargot-linux32
     - name: upload
@@ -102,7 +105,7 @@ jobs:
         path: out/escargot-linux32
 
   build-linux64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
       with:
@@ -125,6 +128,7 @@ jobs:
     - name: Check
       run: |
         file out/escargot
+        strip out/escargot
         $RUNNER --engine="./out/escargot" new-es
         mv out/escargot out/escargot-linux64
     - name: upload
@@ -134,7 +138,7 @@ jobs:
         path: out/escargot-linux64
 
   build-linux64-wasm:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
       with:
@@ -150,6 +154,7 @@ jobs:
     - name: Check
       run: |
         file out/escargot
+        strip out/escargot
         $RUNNER --engine="./out/escargot" new-es wasm-js
         mv out/escargot out/escargot-linux64-wasm
     - name: upload
