@@ -33,7 +33,7 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="./out/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
         mv out/escargot out/escargot-mac64
     - name: upload
       uses: actions/upload-artifact@v4
@@ -63,7 +63,7 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="./out/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
         mv out/escargot out/escargot-mac64arm
     - name: upload
       uses: actions/upload-artifact@v4
@@ -89,7 +89,7 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="./out/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es test262
         mv out/escargot out/escargot-linux32
     - name: upload
       uses: actions/upload-artifact@v4
@@ -115,13 +115,39 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="./out/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es test262
         mv out/escargot out/escargot-linux64
     - name: upload
       uses: actions/upload-artifact@v4
       with:
         name: linux64-result
         path: out/escargot-linux64
+
+  build-linux64-debug:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libicu-dev
+    - name: Build x64
+      run: |
+        cmake -H. -Bout/ -DESCARGOT_MODE=debug -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
+        ninja -Cout/
+    - name: Check
+      run: |
+        file out/escargot
+        strip out/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
+        mv out/escargot out/escargot-linux64-debug
+    - name: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux64-result-debug
+        path: out/escargot-linux64-debug
 
   build-linux64-wasm:
     runs-on: ubuntu-latest
@@ -141,7 +167,7 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="./out/escargot" new-es wasm-js
+        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es wasm-js
         mv out/escargot out/escargot-linux64-wasm
     - name: upload
       uses: actions/upload-artifact@v4
@@ -150,7 +176,7 @@ jobs:
         path: out/escargot-linux64-wasm
 
   release:
-    needs: [build-mac64, build-mac64arm, build-linux32, build-linux64, build-linux64-wasm]
+    needs: [build-mac64, build-mac64arm, build-linux32, build-linux64, build-linux64-wasm, build-linux64-debug]
     runs-on: ubuntu-latest
     steps:
     - name: Download mac64 result
@@ -172,6 +198,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: linux64-result
+        path: artifacts
+    - name: Download linux64-debug result
+      uses: actions/download-artifact@v4
+      with:
+        name: linux64-result-debug
         path: artifacts
     - name: Download linux64-wasm result
       uses: actions/download-artifact@v4
