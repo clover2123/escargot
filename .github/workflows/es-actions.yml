@@ -437,6 +437,30 @@ jobs:
       run: |
         GC_FREE_SPACE_DIVISOR=1 $RUNNER --engine="${{ github.workspace }}/out/escargot" --test262-extra-arg="--skip intl402" test262 chakracore spidermonkey v8 new-es
 
+  build-test-on-riscv64-release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Build in riscv64 container
+      uses: uraimo/run-on-arch-action@v2.8.1
+      with:
+        arch: riscv64
+        distro: ubuntu22.04
+
+        # Install deps into the container. With the token, the container will be cached
+        # The image is cached publically like a package
+        githubToken: ${{ github.token }}
+
+        install: |
+          apt-get update
+          apt-get install -y cmake build-essential ninja-build pkg-config python3 git libicu-dev
+        run: |
+          cmake -H. -Bout/riscv64 -DESCARGOT_TEMPORAL=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja 
+          ninja -Cout/riscv64
+          python3 ./tools/run-tests.py --engine="./out/riscv64/escargot" regression-tests new-es intl sunspider-js
+
   build-test-debugger:
     runs-on: ubuntu-latest
     steps:
