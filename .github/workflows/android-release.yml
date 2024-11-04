@@ -45,6 +45,10 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: true
+    - name: Install Packages
+      run: |
+        brew update
+        brew install ninja pkg-config icu4c@75
     - name: Set up JDK
       uses: actions/setup-java@v4.1.0
       with:
@@ -54,7 +58,11 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
     - name: Build with Gradle
       working-directory: ./build/android
+      env:
+        PKG_CONFIG_PATH: "/usr/local/opt/icu4c@75/lib/pkgconfig"
       run: |
+#export PKG_CONFIG_PATH="/usr/local/opt/icu4c@75/lib/pkgconfig:$PKG_CONFIG_PATH"
+        echo $PKG_CONFIG_PATH
         ./gradlew bundleHostJar
         ./gradlew :escargot:testDebugUnitTest
         mv ./escargot/build/libs/escargot.jar ./escargot/build/libs/escargot-mac.jar
