@@ -7,7 +7,7 @@ on:
 
 env:
   RUNNER: tools/run-tests.py
-  BUILD_OPTIONS: -DESCARGOT_MODE=release -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
+  BUILD_OPTIONS: -DESCARGOT_MODE=release -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_DEPLOY=ON -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
 
 jobs:
   build-mac64:
@@ -19,7 +19,7 @@ jobs:
     - name: Install Packages
       run: |
         brew update
-        brew install ninja icu4c
+        brew install ninja icu4c zip
     - name: Build x64
       run: |
         # check cpu
@@ -33,13 +33,21 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
-        mv out/escargot out/escargot-mac64
+        # set deploy directory
+        mkdir -p deploy
+        cp out/escargot ./deploy/.
+        cp $(brew --prefix icu4c)/lib/*.dylib ./deploy/.
+        install_name_tool -change $(brew --prefix icu4c)/lib/libicui18n.76.dylib @executable_path/libicui18n.76.dylib deploy/escargot
+        install_name_tool -change $(brew --prefix icu4c)/lib/libicuuc.76.dylib @executable_path/libicuuc.76.dylib deploy/escargot
+        # run test
+        $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
+        # zip results
+        zip -j escargot-mac64.zip deploy/*
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-mac64
-        path: out/escargot-mac64
+        path: ./escargot-mac64.zip
 
   build-mac64arm:
     runs-on: macos-latest
@@ -50,7 +58,7 @@ jobs:
     - name: Install Packages
       run: |
         brew update
-        brew install ninja icu4c
+        brew install ninja icu4c zip
     - name: Build arm64
       run: |
         # check cpu
@@ -129,7 +137,7 @@ jobs:
         # for i386 ICU
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib
+        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib zip
         sudo apt-get install -y libicu-dev:i386 # install i386 ICU
     - name: Build x86/x64
       run: |
@@ -147,16 +155,24 @@ jobs:
         sudo locale-gen en_US.UTF-8
         export LANG=en_US.UTF-8
         locale
+        # set deploy directory
+        mkdir -p deploy-x86
+        mkdir -p deploy-x64
+        cp out/x86/escargot ./deploy-x86/.
+        cp out/x64/escargot ./deploy-x64/.
+        ldd deploy-x86/escargot | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
+        ldd deploy-x64/escargot | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
         # run test
-        $RUNNER --engine="$GITHUB_WORKSPACE/out/x86/escargot" new-es
-        $RUNNER --engine="$GITHUB_WORKSPACE/out/x64/escargot" new-es
-        mv out/x86/escargot out/escargot-linux-x86
-        mv out/x64/escargot out/escargot-linux-x64
+        $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x86/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x64/escargot" new-es
+        # zip results
+        zip -j escargot-linux-x86.zip deploy-x86/*
+        zip -j escargot-linux-x64.zip deploy-x64/*
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-linux
-        path: out/escargot-linux-*
+        path: escargot-linux-*.zip
 
   update-release:
     needs: [build-mac64, build-mac64arm, build-windows, build-linux]
