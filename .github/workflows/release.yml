@@ -36,10 +36,18 @@ jobs:
         # set deploy directory
         mkdir -p deploy
         cp out/escargot ./deploy/.
-        cp $(brew --prefix icu4c)/lib/*.dylib ./deploy/.
-        install_name_tool -change $(brew --prefix icu4c)/lib/libicui18n.76.dylib @executable_path/libicui18n.76.dylib deploy/escargot
-        install_name_tool -change $(brew --prefix icu4c)/lib/libicuuc.76.dylib @executable_path/libicuuc.76.dylib deploy/escargot
+
+        # set icu libs
+        LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
+        for LIB in $LIBS; do
+          BASENAME=$(basename "$LIB")
+          cp "$LIB" ./deploy/.
+          install_name_tool -change "$LIB" "@executable_path/$BASENAME" deploy/escargot
+          echo "$LIB set to @executable_path/$BASENAME"
+        done
+
         # run test
+        otool -L ./deploy/escargot
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
         # zip results
         zip -j escargot-mac64.zip deploy/*
@@ -72,59 +80,29 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        $RUNNER --engine="$GITHUB_WORKSPACE/out/escargot" new-es
-        mv out/escargot out/escargot-mac64arm
+        # set deploy directory
+        mkdir -p deploy
+        cp out/escargot ./deploy/.
+
+        # set icu libs
+        LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
+        for LIB in $LIBS; do
+          BASENAME=$(basename "$LIB")
+          cp "$LIB" ./deploy/.
+          install_name_tool -change "$LIB" "@executable_path/$BASENAME" deploy/escargot
+          echo "$LIB set to @executable_path/$BASENAME"
+        done
+
+        # run test
+        otool -L ./deploy/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
+        # zip results
+        zip -j escargot-mac64arm.zip deploy/*
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-mac64arm
-        path: out/escargot-mac64arm
-
-  build-windows:
-    runs-on: windows-2022
-    strategy:
-      matrix:
-        arch: [x86, x64]
-    steps:
-    - name: Set git cllf config
-      run: |
-        git config --global core.autocrlf input
-        git config --global core.eol lf
-    - uses: actions/checkout@v4
-      with:
-        submodules: true
-    - uses: szenius/set-timezone@v2.0
-      with:
-        timezoneWindows: "Pacific Standard Time"
-    - uses: lukka/get-cmake@latest
-    - uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
-      with:
-        sdk-version: 20348
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Install msvc redist package
-      run: |
-        (new-object System.Net.WebClient).DownloadFile('https://github.com/abbodi1406/vcredist/releases/download/v0.73.0/VisualCppRedist_AIO_x86_x64.exe','VisualCppRedist_AIO_x86_x64.exe')
-        .\VisualCppRedist_AIO_x86_x64.exe /y
-    - uses: ilammy/msvc-dev-cmd@v1.13.0
-      with:
-        arch: ${{ matrix.arch }}
-        sdk: "10.0.20348.0"
-    - name: Build ${{ matrix.arch }}
-      run: |
-        CMake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_VERSION:STRING="10.0" -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} -DESCARGOT_ARCH=${{ matrix.arch }} -Bout/ -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=release
-        CMake --build out/ --config Release
-    - name: Check
-      run: |
-        python tools\run-tests.py --engine=%cd%\out\escargot.exe new-es
-        rename out\escargot.exe escargot-win-${{ matrix.arch }}.exe
-      shell: cmd
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-artifact-win-${{ matrix.arch }}
-        path: out\escargot-win-${{ matrix.arch }}.exe
+        path: ./escargot-mac64arm.zip
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -176,9 +154,55 @@ jobs:
         name: build-artifact-linux
         path: escargot-linux-*.zip
 
-  check-release:
+  build-windows:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        arch: [x86, x64]
+    steps:
+    - name: Set git cllf config
+      run: |
+        git config --global core.autocrlf input
+        git config --global core.eol lf
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - uses: szenius/set-timezone@v2.0
+      with:
+        timezoneWindows: "Pacific Standard Time"
+    - uses: lukka/get-cmake@latest
+    - uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+      with:
+        sdk-version: 20348
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install msvc redist package
+      run: |
+        (new-object System.Net.WebClient).DownloadFile('https://github.com/abbodi1406/vcredist/releases/download/v0.73.0/VisualCppRedist_AIO_x86_x64.exe','VisualCppRedist_AIO_x86_x64.exe')
+        .\VisualCppRedist_AIO_x86_x64.exe /y
+    - uses: ilammy/msvc-dev-cmd@v1.13.0
+      with:
+        arch: ${{ matrix.arch }}
+        sdk: "10.0.20348.0"
+    - name: Build ${{ matrix.arch }}
+      run: |
+        CMake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_VERSION:STRING="10.0" -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} -DESCARGOT_ARCH=${{ matrix.arch }} -Bout/ -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=release
+        CMake --build out/ --config Release
+    - name: Check
+      run: |
+        python tools\run-tests.py --engine=%cd%\out\escargot.exe new-es
+        rename out\escargot.exe escargot-win-${{ matrix.arch }}.exe
+      shell: cmd
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifact-win-${{ matrix.arch }}
+        path: out\escargot-win-${{ matrix.arch }}.exe
+
+  check-build-mac64:
     needs: [build-mac64]
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
     - uses: actions/checkout@v4
       with:
@@ -189,19 +213,32 @@ jobs:
         path: artifacts
         pattern: build-artifact-mac64
         merge-multiple: true
-    - name: test
+    - name: Check 
       run: |
-        cd artifacts
-        ls
-        unzip escargot-mac64.zip
-        otool -L escargot
-        echo "print('hello world');" > test.js
-        ./escargot test.js
-    - name: test benchmark
-      run: |
+        unzip artifacts/escargot-mac64.zip -d artifacts
+        otool -L artifacts/escargot
         $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
 
-  check-release2:
+  check-build-mac64arm:
+    needs: [build-mac64arm]
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: build-artifact-mac64arm
+        merge-multiple: true
+    - name: Check
+      run: |
+        unzip artifacts/escargot-mac64arm.zip -d artifacts
+        otool -L artifacts/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
+
+  check-build-linux:
     needs: [build-linux]
     runs-on: ubuntu-latest
     steps:
@@ -214,20 +251,20 @@ jobs:
         path: artifacts
         pattern: build-artifact-linux
         merge-multiple: true
-    - name: test
+    - name: Check
       run: |
-        cd artifacts
-        ls
-        unzip escargot-linux-x64.zip
-        ldd escargot
-        echo "print('hello world');" > test.js
-        ./escargot test.js
-    - name: test benchmark
-      run: |
-        $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
+        dpkg -l | grep libicu-dev
+        mkdir -p result-x86
+        mkdir -p result-x64
+        unzip artifacts/escargot-linux-x86.zip -d result-x86
+        unzip artifacts/escargot-linux-x64.zip -d result-x64
+        ldd result-x86/escargot
+        ldd result-x64/escargot
+        $RUNNER --engine="$GITHUB_WORKSPACE/result-x86/escargot" new-es
+        $RUNNER --engine="$GITHUB_WORKSPACE/result-x64/escargot" new-es
 
   update-release:
-    needs: [build-mac64, build-mac64arm, build-windows, build-linux]
+    needs: [check-build-mac64, check-build-mac64arm, check-build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
     - name: Download build artifacts
