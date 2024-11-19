@@ -180,6 +180,9 @@ jobs:
     needs: [build-mac64]
     runs-on: macos-12
     steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
     - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
@@ -194,6 +197,34 @@ jobs:
         otool -L escargot
         echo "print('hello world');" > test.js
         ./escargot test.js
+    - name: test benchmark
+      run: |
+        $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
+
+  check-release2:
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: build-artifact-linux
+        merge-multiple: true
+    - name: test
+      run: |
+        cd artifacts
+        ls
+        unzip escargot-linux-x64.zip
+        ldd escargot
+        echo "print('hello world');" > test.js
+        ./escargot test.js
+    - name: test benchmark
+      run: |
+        $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
 
   update-release:
     needs: [build-mac64, build-mac64arm, build-windows, build-linux]
