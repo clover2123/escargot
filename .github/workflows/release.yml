@@ -160,9 +160,11 @@ jobs:
         mkdir -p deploy-x64
         cp out/x86/escargot ./deploy-x86/.
         cp out/x64/escargot ./deploy-x64/.
-        ldd deploy-x86/escargot | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
-        ldd deploy-x64/escargot | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
+        ldd deploy-x86/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
+        ldd deploy-x64/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
         # run test
+        ldd deploy-x86/escargot
+        ldd deploy-x64/escargot
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x86/escargot" new-es
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x64/escargot" new-es
         # zip results
@@ -173,6 +175,25 @@ jobs:
       with:
         name: build-artifact-linux
         path: escargot-linux-*.zip
+
+  check-release:
+    needs: [build-mac64]
+    runs-on: macos-12
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: build-artifact-mac64
+        merge-multiple: true
+    - name: test
+      run: |
+        cd artifacts
+        ls
+        unzip escargot-mac64.zip
+        otool -L escargot
+        echo "print('hello world');" > test.js
+        ./escargot test.js
 
   update-release:
     needs: [build-mac64, build-mac64arm, build-windows, build-linux]
