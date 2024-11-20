@@ -2,7 +2,6 @@ name: Release
 
 on:
   push:
-    branches: [ master ]
     tags:
       - "v*.*.*"
 
@@ -38,10 +37,16 @@ jobs:
         file out/escargot
         strip out/escargot
 
-        # set deploy directory and escargot
+        # set deploy directory
         mkdir -p deploy
+
+        # set escargot
         cp out/escargot ./deploy/.
-        install_name_tool -add_rpath @executable_path ./deploy/escargot
+        LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
+        for LIB in $LIBS; do
+          BASENAME=$(basename "$LIB")
+          install_name_tool -change "$LIB" "@executable_path/$BASENAME" deploy/escargot
+        done
 
         # set icu libs
         ICU_LIBS=("libicuuc" "libicui18n" "libicudata")
@@ -61,6 +66,7 @@ jobs:
         done
 
         # check results
+        echo "Check results..."
         ls ./deploy
         otool -L ./deploy/escargot
         otool -L ./deploy/libicu*.dylib
@@ -117,7 +123,7 @@ jobs:
         export LANG=en_US.UTF-8
         locale
 
-        # set deploy directory
+        # set deploy directory and copy escargot binary
         mkdir -p deploy-x86
         mkdir -p deploy-x64
         cp out/x86/escargot ./deploy-x86/.
@@ -126,14 +132,26 @@ jobs:
         # set icu libs
         ldd deploy-x86/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
         ldd deploy-x64/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
+        for LIB in ./deploy-x86/libicu*; do
+          patchelf --set-rpath '$ORIGIN' "$LIB"
+        done
+        for LIB in ./deploy-x64/libicu*; do
+          patchelf --set-rpath '$ORIGIN' "$LIB"
+        done
+
+        # check results
+        echo "Check results..."
         ls ./deploy-x86
+        ldd deploy-x86/escargot
+        ldd deploy-x86/libicu*
         ls ./deploy-x64
+        ldd deploy-x64/escargot
+        ldd deploy-x64/libicu*
 
         # run test
-        ldd deploy-x86/escargot
-        ldd deploy-x64/escargot
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x86/escargot" new-es
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy-x64/escargot" new-es
+
         # zip results
         zip -j escargot-linux-x86.zip deploy-x86/*
         zip -j escargot-linux-x64.zip deploy-x64/*
@@ -256,9 +274,9 @@ jobs:
         unzip artifacts/escargot-linux-x86.zip -d result-x86
         unzip artifacts/escargot-linux-x64.zip -d result-x64
         ldd result-x86/escargot
-        ldd result-x86/*.so
+        ldd result-x86/libicu*
         ldd result-x64/escargot
-        ldd result-x64/*.so
+        ldd result-x64/libicu*
         $RUNNER --engine="$GITHUB_WORKSPACE/result-x86/escargot" new-es
         $RUNNER --engine="$GITHUB_WORKSPACE/result-x64/escargot" new-es
 
