@@ -56,7 +56,7 @@ jobs:
           DEP_LIBS=$(otool -L "$lib_file" | grep "icu" | awk '{print $1}')
           for dep_lib in $DEP_LIBS; do
             dep_name=$(basename "$dep_lib")
-            if [ ! -f "./deploy/$dep_name" ]; then
+            if [! -f "./deploy/$dep_name" ]; then
               cp "$dep_lib" ./deploy/.
               install_name_tool -add_rpath @loader_path "./deploy/$dep_name"
             fi
