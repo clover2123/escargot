@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [ master ]
     tags:
       - "v*.*.*"
 
@@ -10,8 +11,11 @@ env:
   BUILD_OPTIONS: -DESCARGOT_MODE=release -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_DEPLOY=ON -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -DESCARGOT_OUTPUT=shell -GNinja
 
 jobs:
-  build-mac64:
-    runs-on: macos-13
+  build-macOS:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-13, macos-latest]
     steps:
     - uses: actions/checkout@v4
       with:
@@ -40,84 +44,44 @@ jobs:
         install_name_tool -add_rpath @executable_path ./deploy/escargot
 
         # set icu libs
-        ICU_LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
-        for lib_path in $ICU_LIBS; do
-          if [ -f "$lib_path" ]; then
-            lib_name=$(basename "$lib_path")
-            if [! -f "./deploy/$lib_name" ]; then
-              echo "Copying $lib_name"
-              cp "$lib_path" ./deploy/.
-              install_name_tool -add_rpath @loader_path "./deploy/$lib_name"
-            fi
-          fi
+        ICU_LIBS=("libicuuc" "libicui18n" "libicudata")
+        ICU_SOURCE_PATH="$(brew --prefix icu4c)/lib"
+        ICU_VERSION=$(find "$ICU_SOURCE_PATH" -name "libicuuc.*.dylib" | grep -oE '\.[0-9]+\.' | head -n 1 | tr -d '.')
+
+        if [ -z "$ICU_VERSION" ]; then
+          echo "ICU version could not be detected."
+          exit 1
+        else
+          echo "Detected ICU Version: $ICU_VERSION"
+        fi
+
+        for LIB in "${ICU_LIBS[@]}"; do
+          cp -a $ICU_SOURCE_PATH/$LIB.*.dylib ./deploy/.
+          install_name_tool -id "@loader_path/$LIB.$ICU_VERSION.dylib" "./deploy/$LIB.$ICU_VERSION.dylib"
         done
 
-        for lib_file in "deploy/*.dylib"; do
-          DEP_LIBS=$(otool -L "$lib_file" | grep "icu" | awk '{print $1}')
-          for dep_lib in $DEP_LIBS; do
-            dep_name=$(basename "$dep_lib")
-            if [ ! -f "./deploy/$dep_name" ]; then
-              cp "$dep_lib" ./deploy/.
-              install_name_tool -add_rpath @loader_path "./deploy/$dep_name"
-            fi
-          done
-        done
-
-        # run test
+        # check results
+        ls ./deploy
         otool -L ./deploy/escargot
         otool -L ./deploy/libicu*.dylib
+
+        # run test
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
+
         # zip results
-        zip -j escargot-mac64.zip deploy/*
-    - name: Upload
+        if [ "${{ matrix.os }}" == "macos-13" ]; then
+          zip -j escargot-mac64.zip deploy/*
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          zip -j escargot-mac64arm.zip deploy/*
+        fi
+    - name: Upload mac64
+      if: ${{ matrix.os == 'macos-13' }}
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-mac64
         path: ./escargot-mac64.zip
-
-  build-mac64arm:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: true
-    - name: Install Packages
-      run: |
-        brew update
-        brew install ninja icu4c zip
-    - name: Build arm64
-      run: |
-        # check cpu
-        sysctl -a | grep machdep.cpu
-        # add icu path to pkg_config_path
-        export PKG_CONFIG_PATH="$(brew --prefix icu4c)/lib/pkgconfig"
-        echo $PKG_CONFIG_PATH
-        cmake -H. -Bout/ $BUILD_OPTIONS
-        ninja -Cout/
-    - name: Check
-      run: |
-        file out/escargot
-        strip out/escargot
-
-        # set deploy directory
-        mkdir -p deploy
-        cp out/escargot ./deploy/.
-
-        # set icu libs
-        LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
-        for LIB in $LIBS; do
-          BASENAME=$(basename "$LIB")
-          cp "$LIB" ./deploy/.
-          install_name_tool -change "$LIB" "@executable_path/$BASENAME" deploy/escargot
-          echo "$LIB set to @executable_path/$BASENAME"
-        done
-
-        # run test
-        otool -L ./deploy/escargot
-        $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
-        # zip results
-        zip -j escargot-mac64arm.zip deploy/*
-    - name: Upload
+    - name: Upload mac64arm
+      if: ${{ matrix.os == 'macos-latest' }}
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-mac64arm
@@ -162,6 +126,8 @@ jobs:
         # set icu libs
         ldd deploy-x86/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
         ldd deploy-x64/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
+        ls ./deploy-x86
+        ls ./deploy-x64
 
         # run test
         ldd deploy-x86/escargot
@@ -208,6 +174,11 @@ jobs:
       with:
         arch: ${{ matrix.arch }}
         sdk: "10.0.20348.0"
+    - name: Install zip if not available
+      run: |
+        if (-Not (Get-Command zip -ErrorAction SilentlyContinue)) {
+          choco install zip -y
+        }
     - name: Build ${{ matrix.arch }}
       run: |
         CMake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_VERSION:STRING="10.0" -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} -DESCARGOT_ARCH=${{ matrix.arch }} -Bout/ -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_THREADING=ON -DESCARGOT_TCO=ON -DESCARGOT_TEST=ON -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=release
@@ -216,15 +187,16 @@ jobs:
       run: |
         python tools\run-tests.py --engine=%cd%\out\escargot.exe new-es
         rename out\escargot.exe escargot-win-${{ matrix.arch }}.exe
+        zip -j escargot-win-${{ matrix.arch}}.zip out\escargot-win-${{ matrix.arch }}.exe
       shell: cmd
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: build-artifact-win-${{ matrix.arch }}
-        path: out\escargot-win-${{ matrix.arch }}.exe
+        path: escargot-win-${{ matrix.arch }}.zip
 
   check-build-mac64:
-    needs: [build-mac64]
+    needs: [build-macOS]
     runs-on: macos-13
     steps:
     - uses: actions/checkout@v4
@@ -240,10 +212,11 @@ jobs:
       run: |
         unzip artifacts/escargot-mac64.zip -d artifacts
         otool -L artifacts/escargot
+        otool -L artifacts/*.dylib
         $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
 
   check-build-mac64arm:
-    needs: [build-mac64arm]
+    needs: [build-macOS]
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
@@ -259,6 +232,7 @@ jobs:
       run: |
         unzip artifacts/escargot-mac64arm.zip -d artifacts
         otool -L artifacts/escargot
+        otool -L artifacts/*.dylib
         $RUNNER --engine="$GITHUB_WORKSPACE/artifacts/escargot" new-es
 
   check-build-linux:
@@ -282,7 +256,9 @@ jobs:
         unzip artifacts/escargot-linux-x86.zip -d result-x86
         unzip artifacts/escargot-linux-x64.zip -d result-x64
         ldd result-x86/escargot
+        ldd result-x86/*.so
         ldd result-x64/escargot
+        ldd result-x64/*.so
         $RUNNER --engine="$GITHUB_WORKSPACE/result-x86/escargot" new-es
         $RUNNER --engine="$GITHUB_WORKSPACE/result-x64/escargot" new-es
 
