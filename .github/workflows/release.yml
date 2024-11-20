@@ -33,21 +33,39 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
-        # set deploy directory
+
+        # set deploy directory and escargot
         mkdir -p deploy
         cp out/escargot ./deploy/.
+        install_name_tool -add_rpath @executable_path ./deploy/escargot
 
         # set icu libs
-        LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
-        for LIB in $LIBS; do
-          BASENAME=$(basename "$LIB")
-          cp "$LIB" ./deploy/.
-          install_name_tool -change "$LIB" "@executable_path/$BASENAME" deploy/escargot
-          echo "$LIB set to @executable_path/$BASENAME"
+        ICU_LIBS=$(otool -L ./deploy/escargot | grep "icu" | awk '{print $1}')
+        for lib_path in $ICU_LIBS; do
+          if [ -f "$lib_path" ]; then
+            lib_name=$(basename "$lib_path")
+            if [! -f "./deploy/$lib_name" ]; then
+              echo "Copying $lib_name"
+              cp "$lib_path" ./deploy/.
+              install_name_tool -add_rpath @loader_path "./deploy/$lib_name"
+            fi
+          fi
+        done
+
+        for lib_file in "deploy/*.dylib"; do
+          DEP_LIBS=$(otool -L "$lib_file" | grep "icu" | awk '{print $1}')
+          for dep_lib in $DEP_LIBS; do
+            dep_name=$(basename "$dep_lib")
+            if [ ! -f "./deploy/$dep_name" ]; then
+              cp "$dep_lib" ./deploy/.
+              install_name_tool -add_rpath @loader_path "./deploy/$dep_name"
+            fi
+          done
         done
 
         # run test
         otool -L ./deploy/escargot
+        otool -L ./deploy/libicu*.dylib
         $RUNNER --engine="$GITHUB_WORKSPACE/deploy/escargot" new-es
         # zip results
         zip -j escargot-mac64.zip deploy/*
@@ -80,6 +98,7 @@ jobs:
       run: |
         file out/escargot
         strip out/escargot
+
         # set deploy directory
         mkdir -p deploy
         cp out/escargot ./deploy/.
@@ -115,7 +134,7 @@ jobs:
         # for i386 ICU
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib zip
+        sudo apt-get install -y ninja-build libicu-dev gcc-multilib g++-multilib zip patchelf
         sudo apt-get install -y libicu-dev:i386 # install i386 ICU
     - name: Build x86/x64
       run: |
@@ -133,13 +152,17 @@ jobs:
         sudo locale-gen en_US.UTF-8
         export LANG=en_US.UTF-8
         locale
+
         # set deploy directory
         mkdir -p deploy-x86
         mkdir -p deploy-x64
         cp out/x86/escargot ./deploy-x86/.
         cp out/x64/escargot ./deploy-x64/.
+
+        # set icu libs
         ldd deploy-x86/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x86/
         ldd deploy-x64/escargot | grep "icu" | grep "=>" | awk '{print $3}' | xargs -I '{}' cp '{}' deploy-x64/
+
         # run test
         ldd deploy-x86/escargot
         ldd deploy-x64/escargot
