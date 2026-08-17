@@ -225,6 +225,12 @@ void vmMarkStartCallback(void* data)
         self->m_regexpCache->clear();
     }
 
+#if defined(ESCARGOT_IC_PROFILE)
+    // never start a bytecode pruning cycle in the profiling build: pruning frees
+    // ByteCodeBlocks (recompiled on next call at a new instruction address), which
+    // would fragment the profiler's per-site identities — polymorphism sets and
+    // access-count distributions of one logical site would be split across entries
+#else
     if (!self->m_isPruningCompiledByteCodes
         && ((self->compiledByteCodeSize() > self->maxCompiledByteCodeSize() && (self->m_config & (size_t)VMInstance::ConfigFlag::PruneCompiledByteCodesWhileGC)) || UNLIKELY(inIdleMode && (self->m_config & (size_t)VMInstance::ConfigFlag::PruneCompiledByteCodesEnterIdle)))) {
         // NOTE
@@ -242,6 +248,7 @@ void vmMarkStartCallback(void* data)
         // attempt), so the flag guards against re-entering
         self->m_isPruningCompiledByteCodes = true;
     }
+#endif // ESCARGOT_IC_PROFILE
 #endif
 }
 

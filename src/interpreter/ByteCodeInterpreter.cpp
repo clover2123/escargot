@@ -53,6 +53,7 @@
 #include "parser/Script.h"
 #include "parser/ScriptParser.h"
 #include "CheckedArithmetic.h"
+#include "InlineCacheProfiler.h"
 
 #if defined(ENABLE_TCO)
 #include "runtime/FunctionObjectInlines.h"
@@ -139,6 +140,11 @@ public:
     static void getObjectPrecomputedCaseOperation(ExecutionState& state, GetObjectPreComputedCase* code, Value* registerFile, ByteCodeBlock* block);
     static void setObjectPreComputedCaseOperation(ExecutionState& state, const Value& willBeObject, const Value& value, SetObjectPreComputedCase* code, ByteCodeBlock* block);
     static bool typedArrayLengthPropertyIsIntrinsic(ExecutionState& state, Object* obj, const ObjectStructurePropertyName& propertyName);
+#if defined(ESCARGOT_IC_PROFILE)
+    // member (not free function): the structural chain walk needs Object::structure(),
+    // which is protected — InterpreterSlowPath is a friend of Object
+    static void profilePrecomputedCaseAccess(ExecutionState& state, InlineCacheProfiler::SiteKind kind, void* codePtr, ByteCodeBlock* block, Object* receiverObj, const ObjectStructurePropertyName& propertyName, bool isLength);
+#endif
 
     static Object* fastToObject(ExecutionState& state, const Value& obj);
 
@@ -2790,6 +2796,48 @@ NEVER_INLINE bool InterpreterSlowPath::abstractLeftIsLessThanEqualRightSlowCase(
     }
 }
 
+#if defined(ESCARGOT_IC_PROFILE)
+// Baseline profiling (IC disabled in this build): record one property access at a
+// get/set site by walking the receiver's structure chain. The walk is structural —
+// findProperty() on each structure, prototype via the Object::-qualified getter so
+// Proxy traps are never invoked — which matches what the inline cache itself would
+// examine. depth: 1 = own, 2 = first prototype, ...; found=false means the property
+// is absent on the whole chain (get: undefined read / set: property add).
+void InterpreterSlowPath::profilePrecomputedCaseAccess(ExecutionState& state, InlineCacheProfiler::SiteKind kind, void* codePtr, ByteCodeBlock* block,
+                                                       Object* receiverObj, const ObjectStructurePropertyName& propertyName, bool isLength)
+{
+    // "length" on Array/TypedArray/String is not an ordinary structure property (the
+    // dedicated Length opcode serves it outside the IC), so the structural walk below
+    // would misreport it as chain-absent. Record it as resolving on the receiver.
+    if (isLength && (receiverObj->isArrayObject() || receiverObj->isTypedArrayObject() || receiverObj->isStringObject())) {
+        String* name = propertyName.isSymbol() ? nullptr : propertyName.plainString();
+        InlineCacheProfiler::recordAccess(kind, codePtr, block, name, 1, true, receiverObj->structure(), true, 0);
+        return;
+    }
+
+    size_t depth = 0;
+    bool found = false;
+    size_t foundIndex = SIZE_MAX;
+    Object* walk = receiverObj;
+    while (walk) {
+        depth++;
+        auto result = walk->structure()->findProperty(propertyName);
+        if (result.first != SIZE_MAX) {
+            found = true;
+            foundIndex = result.first;
+            break;
+        }
+        if (UNLIKELY(depth >= 64)) {
+            break;
+        }
+        walk = walk->Object::getPrototypeObject(state);
+    }
+    String* nameString = propertyName.isSymbol() ? nullptr : propertyName.plainString();
+    InlineCacheProfiler::recordAccess(kind, codePtr, block, nameString, depth, found,
+                                      receiverObj->structure(), isLength, foundIndex);
+}
+#endif
+
 NEVER_INLINE void InterpreterSlowPath::getObjectPrecomputedCaseOperation(ExecutionState& state, GetObjectPreComputedCase* code, Value* registerFile, ByteCodeBlock* block)
 {
     const Value& receiver = registerFile[code->m_objectRegisterIndex];
@@ -2799,6 +2847,18 @@ NEVER_INLINE void InterpreterSlowPath::getObjectPrecomputedCaseOperation(Executi
     } else {
         orgObj = fastToObject(state, receiver);
     }
+
+#if defined(ESCARGOT_IC_PROFILE)
+    {
+        // Inline caching is fully disabled in this build: profile the access, then run the
+        // generic lookup and return before any cache is probed, filled, or retagged
+        // (m_inlineCacheMode stays None forever, so m_propertyName is always the live
+        // union member and the dispatch loop always lands here).
+        profilePrecomputedCaseAccess(state, InlineCacheProfiler::GetSite, code, block, orgObj, code->m_propertyName, code->m_isLength);
+        registerFile[code->m_storeRegisterIndex] = orgObj->get(state, ObjectPropertyName(state, code->m_propertyName)).value(state, receiver);
+        return;
+    }
+#endif
 
     if (code->m_inlineCacheMode == GetObjectPreComputedCase::Complex) {
         Object* obj = orgObj;
@@ -3072,6 +3132,19 @@ NEVER_INLINE void InterpreterSlowPath::setObjectPreComputedCaseOperation(Executi
         obj->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, code->m_propertyName), value, willBeObject);
         return;
     }
+
+#if defined(ESCARGOT_IC_PROFILE)
+    {
+        // Inline caching is fully disabled in this build: profile the access, then run the
+        // generic store and return before any cache is probed or filled (m_inlineCache stays
+        // null forever, so the dispatch loop always lands here). Non-object receivers were
+        // already handled above and are not recorded.
+        Object* profiledObject = willBeObject.asObject();
+        profilePrecomputedCaseAccess(state, InlineCacheProfiler::SetSite, code, block, profiledObject, code->m_propertyName, code->m_isLength);
+        profiledObject->setThrowsExceptionWhenStrictMode(state, ObjectPropertyName(state, code->m_propertyName), value, willBeObject);
+        return;
+    }
+#endif
 
 #ifndef NDEBUG
     SetObjectInlineCache* const inlineCache = code->m_inlineCache;
